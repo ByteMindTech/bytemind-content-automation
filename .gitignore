@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtualenv
+.venv/
+venv/
+ENV/
+
+# Secrets — NEVER commit these
+.env
+.env.local
+.env.production
+secrets/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Testing
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# Logs
+*.log
+logs/
+
+# Generated content (optional — can be committed)
+content/generated/
+
+# Alembic
+# (keep alembic/ tracked, only skip __pycache__ inside)
+alembic/__pycache__/
+
+# Docker
+.docker/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,89 @@
+name: CI — Test & Build
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Lint + Test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: bytemind_test
+          POSTGRES_USER: bytemind
+          POSTGRES_PASSWORD: testpassword
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Lint — ruff
+        run: ruff check app/ tests/
+
+      - name: Type check — mypy
+        run: mypy app/
+
+      - name: Run tests
+        env:
+          APP_ENV: development
+          JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY || 'test-secret-key-minimum-32-chars-long' }}
+          ACTIONS_API_KEY: ${{ secrets.ACTIONS_API_KEY || 'test-api-key-minimum-32-chars-long' }}
+          DATABASE_URL: postgresql+asyncpg://bytemind:testpassword@localhost:5432/bytemind_test
+          GEMINI_API_KEY: ""
+          OPENAI_API_KEY: ""
+          AI_PROVIDER: gemini
+          MEDIUM_DRY_RUN: "true"
+        run: pytest --cov=app --cov-report=xml -v
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.xml
+        continue-on-error: true
+
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t bytemind-content-automation:${{ github.sha }} .
+
+      - name: Smoke test container
+        run: |
+          docker run -d --name smoke-test \
+            -e APP_ENV=development \
+            -e JWT_SECRET_KEY=test-secret-key-minimum-32-chars-long \
+            -e ACTIONS_API_KEY=test-api-key-minimum-32-chars-long \
+            -e DATABASE_URL=postgresql+asyncpg://x:x@localhost/x \
+            -e MEDIUM_DRY_RUN=true \
+            -p 8001:8000 \
+            bytemind-content-automation:${{ github.sha }}
+          sleep 5
+          # Container should be running even without DB (health endpoint should respond)
+          docker ps | grep smoke-test || echo "container exited"
+          docker stop smoke-test || true

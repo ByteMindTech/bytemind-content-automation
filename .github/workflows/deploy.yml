@@ -1,0 +1,44 @@
+name: Deploy to OVH VPS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build production image
+        run: |
+          docker build -t bytemind-automation:latest .
+          docker save bytemind-automation:latest | gzip > image.tar.gz
+
+      - name: Transfer image to OVH VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.OVH_VPS_HOST }}
+          username: ${{ secrets.OVH_VPS_USER }}
+          key: ${{ secrets.OVH_VPS_SSH_KEY }}
+          source: "image.tar.gz,docker-compose.yml"
+          target: "/opt/bytemind-automation"
+
+      - name: Deploy on VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.OVH_VPS_HOST }}
+          username: ${{ secrets.OVH_VPS_USER }}
+          key: ${{ secrets.OVH_VPS_SSH_KEY }}
+          script: |
+            cd /opt/bytemind-automation
+            docker load < image.tar.gz
+            docker compose up -d --no-build
+            docker compose ps
+            rm -f image.tar.gz
