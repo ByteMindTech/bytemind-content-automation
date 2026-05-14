@@ -1,4 +1,4 @@
-"""APScheduler-based publishing scheduler."""
+"""APScheduler-based publishing scheduler with PostgreSQL persistence."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime
 
 import pytz
+from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -16,18 +17,32 @@ logger = get_logger(__name__)
 _settings = get_settings()
 
 
+def _get_sync_db_url() -> str:
+    """Convert asyncpg URL to psycopg2 for APScheduler's sync job store."""
+    return _settings.database_url.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
+
+
 class ContentScheduler:
     """
     Wraps APScheduler for content publication scheduling.
+    Jobs are persisted in PostgreSQL so they survive container restarts.
 
     Default cron: every Friday at 10:00 AM Europe/Paris.
     """
 
     def __init__(self) -> None:
+        jobstores = {}
+        try:
+            jobstores["default"] = SQLAlchemyJobStore(url=_get_sync_db_url())
+        except Exception as exc:
+            logger.warning("scheduler_db_fallback_memory", error=str(exc))
+            # Fallback to memory if DB not available at init (e.g. during tests)
+
         self._scheduler = AsyncIOScheduler(
-            timezone=pytz.timezone(_settings.scheduler_timezone)
+            jobstores=jobstores,
+            timezone=pytz.timezone(_settings.scheduler_timezone),
         )
-        self._jobs: dict[str, str] = {}  # article_id → apscheduler job id
+        self._jobs: dict[str, str] = {}
 
     def start(self) -> None:
         if not self._scheduler.running:
@@ -67,6 +82,18 @@ class ContentScheduler:
             return True
         except Exception:
             return False
+
+    def list_jobs(self) -> list[dict]:
+        """List all pending scheduled jobs."""
+        jobs = self._scheduler.get_jobs()
+        return [
+            {
+                "id": job.id,
+                "next_run": job.next_run_time.isoformat() if job.next_run_time else None,
+                "name": job.name,
+            }
+            for job in jobs
+        ]
 
     def add_weekly_sweep(self, sweep_fn: "Callable") -> None:
         """Add the default weekly publish sweep (Friday 10 AM)."""

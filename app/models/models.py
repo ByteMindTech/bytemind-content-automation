@@ -57,11 +57,12 @@ class Article(TimestampMixin, Base):
     publish_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     read_time_minutes: Mapped[int | None] = mapped_column(Integer)
     word_count: Mapped[int | None] = mapped_column(Integer)
-    # Status: pending | processing | enriched | scheduled | published | failed
+    # Status: pending | processing | enriched | revising | awaiting_approval | approved | published | rejected | failed
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, default="pending", index=True
     )
     featured: Mapped[bool] = mapped_column(Boolean, default=False)
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 
     generations: Mapped[list["AIGeneration"]] = relationship(
         "AIGeneration", back_populates="article", cascade="all, delete-orphan"

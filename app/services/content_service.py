@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -52,12 +53,25 @@ class ContentService:
     async def ingest_parsed(
         self, parsed: ParsedArticle, actor: str = "system"
     ) -> tuple[uuid.UUID, bool]:
-        # Duplicate slug guard
+        # Compute content hash for change detection
+        content_hash = hashlib.sha256(parsed.content_body.encode()).hexdigest()
+
+        # Check for existing article with same slug
         if await self._article_repo.exists_by_slug(parsed.slug):
             existing = await self._article_repo.get_by_slug(parsed.slug)
             assert existing is not None
-            logger.info("article_already_ingested", slug=parsed.slug, id=str(existing.id))
-            return existing.id, False
+
+            # If content unchanged, skip re-ingestion
+            if existing.content_hash == content_hash:
+                logger.info("article_unchanged", slug=parsed.slug, id=str(existing.id))
+                return existing.id, False
+
+            # Content changed — reset status for re-enrichment
+            existing.content_hash = content_hash
+            existing.status = "pending"
+            await self._session.commit()
+            logger.info("article_updated_content_changed", slug=parsed.slug, id=str(existing.id))
+            return existing.id, True
 
         article = await self._article_repo.create(
             {
@@ -75,6 +89,7 @@ class ContentService:
                 "word_count": parsed.word_count,
                 "featured": parsed.featured,
                 "status": "pending",
+                "content_hash": content_hash,
             }
         )
 

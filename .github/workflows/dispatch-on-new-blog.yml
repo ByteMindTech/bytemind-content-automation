@@ -1,0 +1,37 @@
+# This workflow template should be added to the ByteMindTech repo
+# It triggers content enrichment when new blog articles are pushed.
+name: Dispatch Blog Article to Automation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/content/blog/**/*.md'
+
+jobs:
+  dispatch:
+    name: Notify Content Automation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect changed blog articles
+        id: changed
+        run: |
+          CHANGED=$(git diff --name-only HEAD~1 HEAD -- 'src/content/blog/' | grep '\.md$' | head -5)
+          echo "files<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGED" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "count=$(echo "$CHANGED" | grep -c . || echo 0)" >> $GITHUB_OUTPUT
+
+      - name: Dispatch to automation platform
+        if: steps.changed.outputs.count != '0'
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.AUTOMATION_DISPATCH_TOKEN }}
+          repository: ByteMindTech/bytemind-content-automation
+          event-type: new_blog_article
+          client-payload: '{"article_path": "${{ steps.changed.outputs.files }}"}'
