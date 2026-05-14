@@ -1,8 +1,9 @@
 """Integration test — full pipeline with mocked AI and Medium."""
 
+import asyncio
 import os
 import uuid
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -41,8 +42,9 @@ class TestFullPipelineMocked:
         assert result.output_validated
         assert result.cost_usd > 0
 
-    @patch("app.ai.engine.GeminiClient.generate")
-    def test_ai_engine_returns_mock_result(self, mock_generate, sample_markdown):
+    @pytest.mark.asyncio
+    @patch("app.ai.engine.GeminiClient.generate", new_callable=AsyncMock)
+    async def test_ai_engine_returns_mock_result(self, mock_generate, sample_markdown):
         mock_result = GenerationResult(
             prompt_type="seo_title",
             provider="gemini",
@@ -70,10 +72,10 @@ class TestFullPipelineMocked:
         # Force gemini provider for this test
         with patch.dict(os.environ, {"AI_PROVIDER": "gemini", "GEMINI_API_KEY": "fake-key"}):
             engine = AIEngine()
-            engine._gemini = MagicMock()
-            engine._gemini.generate.return_value = mock_result
+            engine._gemini = AsyncMock()
+            engine._gemini.generate = AsyncMock(return_value=mock_result)
             engine._provider = "gemini"
 
-            result = engine.generate(prompt)
+            result = await engine.generate(prompt)
             assert result.prompt_type == "seo_title"
             assert result.output == "Enterprise RAG on Vertex AI"

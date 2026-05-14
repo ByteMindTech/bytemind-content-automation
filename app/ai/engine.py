@@ -1,7 +1,8 @@
-"""Gemini AI client with retry, token tracking, and OpenAI fallback."""
+"""Async AI engine with multi-LLM routing, retry, and token tracking."""
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
 from dataclasses import dataclass
@@ -36,6 +37,25 @@ _OPENAI_COSTS = {
     "gpt-4o-mini": {"input": 0.15, "output": 0.60},
 }
 
+# Smart multi-LLM routing: cheap prompts → flash/mini, complex → pro/4o
+MODEL_ROUTING: dict[str, dict[str, str]] = {
+    # prompt_type → {gemini: model, openai: model}
+    "seo_title": {"gemini": "gemini-2.0-flash", "openai": "gpt-4o-mini"},
+    "seo_description": {"gemini": "gemini-2.0-flash", "openai": "gpt-4o-mini"},
+    "hashtags": {"gemini": "gemini-2.0-flash", "openai": "gpt-4o-mini"},
+    "cta": {"gemini": "gemini-2.0-flash", "openai": "gpt-4o-mini"},
+    # Complex prompts — need higher-quality models
+    "linkedin_short": {"gemini": "gemini-1.5-pro", "openai": "gpt-4o"},
+    "linkedin_medium": {"gemini": "gemini-1.5-pro", "openai": "gpt-4o"},
+    "linkedin_technical": {"gemini": "gemini-1.5-pro", "openai": "gpt-4o"},
+    "medium_intro": {"gemini": "gemini-1.5-pro", "openai": "gpt-4o"},
+    "readability": {"gemini": "gemini-1.5-pro", "openai": "gpt-4o"},
+    "revision": {"gemini": "gemini-1.5-pro", "openai": "gpt-4o"},
+}
+
+# Concurrency limiter to avoid rate-limiting from AI providers
+_SEMAPHORE = asyncio.Semaphore(4)
+
 
 @dataclass
 class GenerationResult:
@@ -62,7 +82,7 @@ class GeminiClient:
 
         genai.configure(api_key=_settings.gemini_api_key)
         self._genai = genai
-        self._model_name = _settings.gemini_model
+        self._default_model = _settings.gemini_model
         self._validator = AIOutputValidator()
 
     @retry(
@@ -71,15 +91,17 @@ class GeminiClient:
         wait=wait_exponential(multiplier=1, min=2, max=30),
         reraise=True,
     )
-    def generate(
+    async def generate(
         self,
         prompt: PromptTemplate,
         source_body: str = "",
+        model_override: str | None = None,
         retry_count: int = 0,
     ) -> GenerationResult:
-        """Call Gemini and return a GenerationResult."""
+        """Call Gemini asynchronously and return a GenerationResult."""
+        model_name = model_override or self._default_model
         model = self._genai.GenerativeModel(
-            model_name=self._model_name,
+            model_name=model_name,
             generation_config=self._genai.GenerationConfig(
                 temperature=_settings.gemini_temperature,
                 max_output_tokens=prompt.max_output_tokens,
@@ -87,13 +109,14 @@ class GeminiClient:
         )
 
         start_ms = int(time.time() * 1000)
-        response = model.generate_content(prompt.text)
+        async with _SEMAPHORE:
+            response = await model.generate_content_async(prompt.text)
         latency = int(time.time() * 1000) - start_ms
 
         raw_output = response.text or ""
         tokens_in = response.usage_metadata.prompt_token_count or 0
         tokens_out = response.usage_metadata.candidates_token_count or 0
-        cost = self._calc_cost(self._model_name, tokens_in, tokens_out, _GEMINI_COSTS)
+        cost = self._calc_cost(model_name, tokens_in, tokens_out, _GEMINI_COSTS)
 
         sanitized = self._validator.sanitize(raw_output)
         valid, issues = self._validator.validate(sanitized, prompt.prompt_type, source_body)
@@ -101,7 +124,7 @@ class GeminiClient:
         logger.info(
             "gemini_generate",
             prompt_type=prompt.prompt_type,
-            model=self._model_name,
+            model=model_name,
             tokens_in=tokens_in,
             tokens_out=tokens_out,
             cost_usd=round(cost, 6),
@@ -112,7 +135,7 @@ class GeminiClient:
         return GenerationResult(
             prompt_type=prompt.prompt_type,
             provider="gemini",
-            model=self._model_name,
+            model=model_name,
             output=sanitized,
             output_validated=valid,
             validation_issues=issues,
@@ -130,13 +153,13 @@ class GeminiClient:
 
 
 class OpenAIClient:
-    """OpenAI client as fallback for Gemini."""
+    """Async OpenAI client as fallback for Gemini."""
 
     def __init__(self) -> None:
-        from openai import OpenAI
+        from openai import AsyncOpenAI
 
-        self._client = OpenAI(api_key=_settings.openai_api_key)
-        self._model = _settings.openai_model
+        self._client = AsyncOpenAI(api_key=_settings.openai_api_key)
+        self._default_model = _settings.openai_model
         self._validator = AIOutputValidator()
 
     @retry(
@@ -145,24 +168,39 @@ class OpenAIClient:
         wait=wait_exponential(multiplier=1, min=2, max=30),
         reraise=True,
     )
-    def generate(
+    async def generate(
         self,
         prompt: PromptTemplate,
         source_body: str = "",
+        model_override: str | None = None,
         retry_count: int = 0,
     ) -> GenerationResult:
+        model_name = model_override or self._default_model
         start_ms = int(time.time() * 1000)
-        response = self._client.chat.completions.create(
-            model=self._model,
-            messages=[{"role": "user", "content": prompt.text}],
-            max_tokens=prompt.max_output_tokens,
-            temperature=0.7,
-        )
+
+        async with _SEMAPHORE:
+            response = await self._client.chat.completions.create(
+                model=model_name,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a senior technical content strategist for ByteMind, "
+                            "an enterprise AI & cloud consultancy. Generate precise, factual "
+                            "content. Never hallucinate commands, tools, or architecture claims."
+                        ),
+                    },
+                    {"role": "user", "content": prompt.text},
+                ],
+                max_tokens=prompt.max_output_tokens,
+                temperature=0.7,
+            )
         latency = int(time.time() * 1000) - start_ms
+
         raw_output = response.choices[0].message.content or ""
         tokens_in = response.usage.prompt_tokens if response.usage else 0
         tokens_out = response.usage.completion_tokens if response.usage else 0
-        cost = GeminiClient._calc_cost(self._model, tokens_in, tokens_out, _OPENAI_COSTS)
+        cost = GeminiClient._calc_cost(model_name, tokens_in, tokens_out, _OPENAI_COSTS)
 
         sanitized = self._validator.sanitize(raw_output)
         valid, issues = self._validator.validate(sanitized, prompt.prompt_type, source_body)
@@ -170,7 +208,7 @@ class OpenAIClient:
         return GenerationResult(
             prompt_type=prompt.prompt_type,
             provider="openai",
-            model=self._model,
+            model=model_name,
             output=sanitized,
             output_validated=valid,
             validation_issues=issues,
@@ -185,7 +223,7 @@ class OpenAIClient:
 class AIEngine:
     """
     Facade that routes generation requests to Gemini (primary)
-    or OpenAI (fallback) based on config and availability.
+    or OpenAI (fallback) based on config and smart model routing.
     """
 
     def __init__(self) -> None:
@@ -198,18 +236,27 @@ class AIEngine:
         if self._provider in ("openai", "auto") and _settings.openai_api_key:
             self._openai = OpenAIClient()
 
-    def generate(
+    def _get_model_for_prompt(self, prompt_type: str, provider: str) -> str | None:
+        """Get the optimal model for a prompt type via smart routing."""
+        routing = MODEL_ROUTING.get(prompt_type)
+        if routing:
+            return routing.get(provider)
+        return None
+
+    async def generate(
         self,
         prompt: PromptTemplate,
         source_body: str = "",
     ) -> GenerationResult:
-        """Generate content. Falls back to OpenAI if Gemini fails."""
+        """Generate content asynchronously. Falls back to OpenAI if Gemini fails."""
         if self._provider == "openai" and self._openai:
-            return self._openai.generate(prompt, source_body)
+            model = self._get_model_for_prompt(prompt.prompt_type, "openai")
+            return await self._openai.generate(prompt, source_body, model_override=model)
 
         if self._gemini:
             try:
-                return self._gemini.generate(prompt, source_body)
+                model = self._get_model_for_prompt(prompt.prompt_type, "gemini")
+                return await self._gemini.generate(prompt, source_body, model_override=model)
             except Exception as exc:
                 logger.warning(
                     "gemini_failed_fallback_openai",
@@ -217,9 +264,33 @@ class AIEngine:
                     error=str(exc),
                 )
                 if self._openai:
-                    return self._openai.generate(prompt, source_body)
+                    model = self._get_model_for_prompt(prompt.prompt_type, "openai")
+                    return await self._openai.generate(
+                        prompt, source_body, model_override=model
+                    )
                 raise
 
         raise RuntimeError(
             "No AI provider available. Configure GEMINI_API_KEY or OPENAI_API_KEY."
         )
+
+    async def generate_batch(
+        self,
+        prompts: list[PromptTemplate],
+        source_body: str = "",
+    ) -> list[GenerationResult]:
+        """Generate multiple prompts concurrently with semaphore-limited parallelism."""
+        tasks = [self.generate(prompt, source_body) for prompt in prompts]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        successful: list[GenerationResult] = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.error(
+                    "batch_generation_failed",
+                    prompt_type=prompts[i].prompt_type,
+                    error=str(result),
+                )
+            else:
+                successful.append(result)
+        return successful

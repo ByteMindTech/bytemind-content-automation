@@ -1,0 +1,21 @@
+{
+	email contact@bytemind.fr
+}
+
+api.bytemind.fr {
+	reverse_proxy app:8000
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+
+	log {
+		output file /data/logs/access.log {
+			roll_size 10mb
+			roll_keep 5
+		}
+	}
+}

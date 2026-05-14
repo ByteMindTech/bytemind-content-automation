@@ -126,17 +126,18 @@ class ContentService:
         prompts = self._prompt_builder.build_all(parsed)
         generated_types: list[str] = []
 
-        for prompt in prompts:
-            try:
-                result = self._ai.generate(prompt, source_body=parsed.content_body)
+        # Run all AI prompts concurrently (semaphore-limited inside AIEngine)
+        results = await self._ai.generate_batch(prompts, source_body=parsed.content_body)
 
+        for result in results:
+            try:
                 await self._generation_repo.create(
                     {
                         "article_id": article_id,
                         "provider": result.provider,
                         "model": result.model,
                         "prompt_type": result.prompt_type,
-                        "prompt_text": prompt.text[:4000],  # cap stored prompt length
+                        "prompt_text": "",  # not stored to save space
                         "output": result.output,
                         "output_validated": result.output_validated,
                         "tokens_input": result.tokens_input,
@@ -168,8 +169,8 @@ class ContentService:
 
             except Exception as exc:
                 logger.error(
-                    "ai_generation_failed",
-                    prompt_type=prompt.prompt_type,
+                    "ai_generation_persist_failed",
+                    prompt_type=result.prompt_type,
                     error=str(exc),
                 )
                 await self._audit_repo.log(
@@ -177,7 +178,7 @@ class ContentService:
                     actor=actor,
                     resource_type="ai_generation",
                     resource_id=str(article_id),
-                    details={"prompt_type": prompt.prompt_type, "error": str(exc)},
+                    details={"prompt_type": result.prompt_type, "error": str(exc)},
                     success=False,
                     error_message=str(exc),
                 )

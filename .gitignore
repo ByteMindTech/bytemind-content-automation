@@ -44,6 +44,7 @@ alembic/__pycache__/
 
 # Docker
 .docker/
+backups/
 
 # OS
 .DS_Store

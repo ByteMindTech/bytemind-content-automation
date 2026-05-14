@@ -15,21 +15,31 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout ByteMindTech content repo
+        uses: actions/checkout@v4
+        with:
+          repository: ByteMindTech/ByteMindTech
+          path: bytemindtech
+          sparse-checkout: src/content/blog
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Call /generate API
         run: |
           ARTICLE_PATH="${{ github.event.client_payload.article_path || github.event.inputs.article_path }}"
-          ARTICLE_CONTENT=$(cat "$ARTICLE_PATH" 2>/dev/null || echo "")
+          FULL_PATH="bytemindtech/${ARTICLE_PATH}"
 
-          if [ -z "$ARTICLE_CONTENT" ]; then
-            echo "No article content provided — skipping."
-            exit 0
+          if [ ! -f "$FULL_PATH" ]; then
+            echo "Article file not found: $FULL_PATH"
+            exit 1
           fi
+
+          ARTICLE_CONTENT=$(cat "$FULL_PATH")
 
           curl -X POST "${{ secrets.AUTOMATION_API_URL }}/generate" \
             -H "Authorization: Bearer ${{ secrets.AUTOMATION_API_KEY }}" \
             -H "Content-Type: application/json" \
             -d "{
-              \"source_content\": $(echo \"$ARTICLE_CONTENT\" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))'),
+              \"source_content\": $(echo "$ARTICLE_CONTENT" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))'),
               \"source_path\": \"$ARTICLE_PATH\"
             }" \
             --fail-with-body \
