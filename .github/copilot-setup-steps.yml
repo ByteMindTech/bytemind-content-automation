@@ -1,0 +1,31 @@
+# Copilot Cloud Agent — Environment Setup
+# This file configures the environment for the GitHub Copilot coding agent
+# when it works on pull requests or issues in this repository.
+
+setup:
+  - name: Install Python 3.12
+    uses: actions/setup-python@v5
+    with:
+      python-version: "3.12"
+
+  - name: Install project dependencies
+    run: pip install -e ".[dev]"
+
+  - name: Start PostgreSQL for tests
+    run: |
+      sudo systemctl start postgresql
+      sudo -u postgres createuser --superuser bytemind 2>/dev/null || true
+      sudo -u postgres createdb -O bytemind bytemind_test 2>/dev/null || true
+      sudo -u postgres psql -c "ALTER USER bytemind PASSWORD 'testpassword';" 2>/dev/null || true
+
+  - name: Set test environment variables
+    run: |
+      echo "APP_ENV=development" >> $GITHUB_ENV
+      echo "JWT_SECRET_KEY=copilot-agent-test-secret-key-minimum-32-chars" >> $GITHUB_ENV
+      echo "ACTIONS_API_KEY=copilot-agent-test-api-key-minimum-32-chars-long" >> $GITHUB_ENV
+      echo "DATABASE_URL=postgresql+asyncpg://bytemind:testpassword@localhost:5432/bytemind_test" >> $GITHUB_ENV
+      echo "GEMINI_API_KEY=" >> $GITHUB_ENV
+      echo "OPENAI_API_KEY=" >> $GITHUB_ENV
+      echo "AI_PROVIDER=gemini" >> $GITHUB_ENV
+      echo "MEDIUM_DRY_RUN=true" >> $GITHUB_ENV
+      echo "REDIS_URL=redis://localhost:6379/0" >> $GITHUB_ENV
