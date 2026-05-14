@@ -1,4 +1,4 @@
-"""Content enrichment service — orchestrates parsing + AI generation."""
+"""Content enrichment service — orchestrates parsing + AI generation + approval."""
 
 from __future__ import annotations
 
@@ -202,4 +202,42 @@ class ContentService:
             generated=len(generated_types),
             status=final_status,
         )
+
+        # Trigger revision + approval workflow if enrichment succeeded
+        if generated_types:
+            await self._run_approval_workflow(article_id)
+
         return generated_types
+
+    async def _run_approval_workflow(self, article_id: uuid.UUID) -> None:
+        """Run AI revision → email notification approval flow."""
+        from app.services.email_service import EmailService
+        from app.services.revision_service import RevisionService
+
+        try:
+            revision_service = RevisionService(self._session)
+            revision = await revision_service.revise_article(article_id)
+
+            # If auto-approved, skip email
+            if revision.auto_approved:
+                logger.info(
+                    "article_auto_approved_skipping_email",
+                    article_id=str(article_id),
+                    quality_score=revision.quality_score,
+                )
+                return
+
+            # Send approval email
+            article = await self._article_repo.get_by_id(article_id)
+            if article:
+                email_service = EmailService()
+                await email_service.send_approval_email(article, revision)
+
+        except Exception as exc:
+            logger.error(
+                "approval_workflow_failed",
+                article_id=str(article_id),
+                error=str(exc),
+            )
+            # Don't fail the enrichment if approval workflow fails
+            await self._article_repo.update_status(article_id, "enriched")

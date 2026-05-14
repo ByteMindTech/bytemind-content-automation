@@ -3,6 +3,7 @@
 from app.models.models import (
     AIGeneration,
     Article,
+    ArticleRevision,
     AuditLog,
     Base,
     PublishingHistory,
@@ -16,6 +17,7 @@ __all__ = [
     "TimestampMixin",
     "Article",
     "AIGeneration",
+    "ArticleRevision",
     "PublishingHistory",
     "ScheduledJob",
     "AuditLog",

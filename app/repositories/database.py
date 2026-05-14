@@ -26,6 +26,9 @@ AsyncSessionLocal = async_sessionmaker(
     autoflush=False,
 )
 
+# Alias for direct use in non-dependency contexts (e.g., approval endpoints)
+async_session_factory = AsyncSessionLocal
+
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """FastAPI dependency — yields a scoped async DB session."""

@@ -72,6 +72,9 @@ class Article(TimestampMixin, Base):
     scheduled_jobs: Mapped[list["ScheduledJob"]] = relationship(
         "ScheduledJob", back_populates="article", cascade="all, delete-orphan"
     )
+    revisions: Mapped[list["ArticleRevision"]] = relationship(
+        "ArticleRevision", back_populates="article", cascade="all, delete-orphan"
+    )
 
 
 class AIGeneration(TimestampMixin, Base):
@@ -182,3 +185,28 @@ class TokenUsage(TimestampMixin, Base):
     tokens_output: Mapped[int] = mapped_column(Integer, default=0)
     total_cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
     call_count: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class ArticleRevision(TimestampMixin, Base):
+    """AI revision review of enriched article content."""
+
+    __tablename__ = "article_revisions"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    article_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("articles.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    quality_score: Mapped[int] = mapped_column(Integer, nullable=False)
+    auto_approved: Mapped[bool] = mapped_column(Boolean, default=False)
+    issues: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    suggestions: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    model: Mapped[str] = mapped_column(String(128), nullable=False)
+    tokens_input: Mapped[int] = mapped_column(Integer, default=0)
+    tokens_output: Mapped[int] = mapped_column(Integer, default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+
+    article: Mapped["Article"] = relationship("Article", back_populates="revisions")

@@ -72,6 +72,19 @@ class Settings(BaseSettings):
     # ── CORS ────────────────────────────────────────────────
     cors_origins: str = "http://localhost:3000"
 
+    # ── SMTP (OVH email for approval notifications) ───────
+    smtp_host: str = "ssl0.ovh.net"
+    smtp_port: int = 465
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from_name: str = "ByteMind Automation"
+
+    # ── Approval Workflow ─────────────────────────────────
+    approval_email: str = ""
+    approval_base_url: str = "https://api.bytemind.fr"
+    approval_token_expiry_hours: int = 72
+    auto_approve_threshold: int = 9
+
     @field_validator("gemini_temperature")
     @classmethod
     def validate_temperature(cls, v: float) -> float:
