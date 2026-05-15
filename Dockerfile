@@ -8,17 +8,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies only (no package build needed)
-COPY pyproject.toml README.md ./
+COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir hatchling \
-    && python -c "
-import tomllib
-with open('pyproject.toml', 'rb') as f:
-    deps = tomllib.load(f)['project']['dependencies']
-with open('requirements.txt', 'w') as f:
-    f.write('\n'.join(deps))
-" \
     && pip install --no-cache-dir -r requirements.txt --target /deps
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
