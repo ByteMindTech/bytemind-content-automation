@@ -6,6 +6,7 @@ from app.models.models import (
     ArticleRevision,
     AuditLog,
     Base,
+    MediumImport,
     PublishingHistory,
     ScheduledJob,
     TimestampMixin,
@@ -20,6 +21,7 @@ __all__ = [
     "ArticleRevision",
     "PublishingHistory",
     "ScheduledJob",
+    "MediumImport",
     "AuditLog",
     "TokenUsage",
 ]

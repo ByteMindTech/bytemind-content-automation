@@ -58,6 +58,9 @@ class Settings(BaseSettings):
 
     # ── Website (source of truth) ────────────────────────────
     website_base_url: str = "https://bytemind.fr"
+    github_website_token: str = Field(default="")
+    github_website_repo: str = "ByteMindTech/bytemind-website"
+    github_website_blog_path: str = "src/content/blog"
 
     # ── Content ──────────────────────────────────────────────
     content_source_path: str = "../ByteMindTech/src/content/blog"

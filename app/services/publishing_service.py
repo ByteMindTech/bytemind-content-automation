@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
+import frontmatter
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -18,6 +19,7 @@ from app.repositories import (
     AuditRepository,
     PublishingRepository,
 )
+from app.services.website_publisher import WebsitePublisher
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -51,6 +53,7 @@ class PublishingService:
         self._medium_legacy = MediumPublisher()
         self._medium_syndication = MediumSyndicationExporter()
         self._linkedin = LinkedInGenerator()
+        self._website_publisher = WebsitePublisher()
 
     async def publish_article(
         self,
@@ -64,7 +67,8 @@ class PublishingService:
 
         Returns a summary dict with keys:
             article_id, slug, website_url, syndication_bundle_path,
-            medium, linkedin_drafts_folder, status
+            website_commit, medium, medium_import_url,
+            medium_import_status, linkedin_drafts_folder, status
         """
         article = await self._article_repo.get_by_id(article_id)
         if article is None:
@@ -92,7 +96,18 @@ class PublishingService:
 
         # Read source markdown body
         source = Path(article.source_path)
-        body_markdown = source.read_text(encoding="utf-8") if source.exists() else article.excerpt
+        source_markdown = source.read_text(encoding="utf-8") if source.exists() else article.excerpt
+        body_markdown = source_markdown
+        if source_markdown.strip():
+            try:
+                body_markdown = frontmatter.loads(source_markdown).content or article.excerpt
+            except Exception as exc:
+                logger.warning(
+                    "publish_source_parse_failed",
+                    article_id=str(article_id),
+                    slug=article.slug,
+                    error=str(exc),
+                )
 
         canonical_base = _settings.medium_canonical_base_url.rstrip("/")
         website_url = f"{_settings.website_base_url.rstrip('/')}/blogs/{article.slug}"
@@ -107,7 +122,7 @@ class PublishingService:
                 "url": website_url,
                 "status": "published",
                 "dry_run": False,
-                "published_at": datetime.now(tz=timezone.utc),
+                "published_at": datetime.now(tz=UTC),
             }
         )
         logger.info(
@@ -115,6 +130,54 @@ class PublishingService:
             article_id=str(article_id),
             url=website_url,
         )
+
+        website_commit: dict = {
+            "status": "skipped",
+            "reason": "github_website_token_not_configured",
+        }
+        if _settings.github_website_token.strip():
+            try:
+                website_commit = await self._website_publisher.publish_article(
+                    slug=article.slug,
+                    source_markdown=source_markdown,
+                    title=article.title,
+                    category=article.category,
+                    tags=article.tags or [],
+                    author=article.author,
+                    author_role=article.author_role,
+                    excerpt=article.excerpt,
+                    featured=article.featured,
+                    publish_date=article.publish_date,
+                    date_label=article.date_label,
+                    read_time_minutes=article.read_time_minutes,
+                    seo_title=seo_title,
+                    seo_description=seo_description,
+                )
+                website_record.raw_response = website_commit
+                logger.info(
+                    "website_repo_publish_recorded",
+                    article_id=str(article_id),
+                    slug=article.slug,
+                    path=website_commit.get("path"),
+                    commit_sha=website_commit.get("commit_sha"),
+                )
+            except Exception as exc:
+                website_commit = {"status": "failed", "error": str(exc)}
+                website_record.raw_response = website_commit
+                website_record.error_message = str(exc)
+                logger.error(
+                    "website_repo_publish_failed",
+                    article_id=str(article_id),
+                    slug=article.slug,
+                    error=str(exc),
+                )
+        else:
+            website_record.raw_response = website_commit
+            logger.info(
+                "website_repo_publish_skipped",
+                article_id=str(article_id),
+                slug=article.slug,
+            )
 
         # ── Medium syndication bundle (always generated) ──────────────────────
         syndication_bundle_path: str | None = None
@@ -142,7 +205,7 @@ class PublishingService:
                     "url": canonical_url,
                     "status": "bundle_ready",
                     "dry_run": False,
-                    "published_at": datetime.now(tz=timezone.utc),
+                    "published_at": datetime.now(tz=UTC),
                 }
             )
         except Exception as exc:
@@ -161,7 +224,7 @@ class PublishingService:
                         "No MEDIUM_INTEGRATION_TOKEN configured. "
                         "Medium no longer issues new integration tokens. "
                         "Use the syndication bundle for manual import at "
-                        "https://medium.com/me/import"
+                        "https://medium.com/p/import"
                     ),
                 }
                 logger.warning(
@@ -189,7 +252,7 @@ class PublishingService:
                             "url": medium_result.get("url"),
                             "status": medium_result.get("status", "published"),
                             "dry_run": medium_result.get("dry_run", False),
-                            "published_at": datetime.now(tz=timezone.utc),
+                            "published_at": datetime.now(tz=UTC),
                             "raw_response": medium_result.get("raw"),
                         }
                     )
@@ -223,10 +286,32 @@ class PublishingService:
                     hashtags=hashtags,
                     cta=cta,
                     article_title=article.title,
+                    website_base_url=_settings.website_base_url,
                 )
                 linkedin_folder = str(folder)
             except Exception as exc:
                 logger.error("linkedin_save_failed", error=str(exc))
+
+        # ── Queue for Medium import ──────────────────────────────────────────
+        medium_import_status: str | None = None
+        try:
+            from app.services.medium_import_service import MediumImportService
+
+            medium_import_service = MediumImportService(self._session)
+            import_record = await medium_import_service.queue_for_import(
+                article_id=article_id,
+                website_url=website_url,
+                canonical_url=canonical_url,
+            )
+            medium_import_status = import_record.status
+            logger.info(
+                "medium_import_queued",
+                article_id=str(article_id),
+                slug=article.slug,
+                import_status=medium_import_status,
+            )
+        except Exception as exc:
+            logger.error("medium_import_queue_failed", error=str(exc))
 
         # ── Update article status ─────────────────────────────────────────────
         await self._article_repo.update_status(article_id, "published")
@@ -241,6 +326,7 @@ class PublishingService:
                 "website_url": website_url,
                 "canonical_url": canonical_url,
                 "syndication_bundle": syndication_bundle_path,
+                "website_commit": website_commit,
                 "medium_status": medium_result.get("status"),
                 "linkedin_folder": linkedin_folder,
             },
@@ -253,7 +339,10 @@ class PublishingService:
             "website_url": website_url,
             "canonical_url": canonical_url,
             "syndication_bundle_path": syndication_bundle_path,
+            "website_commit": website_commit,
             "medium": medium_result,
+            "medium_import_url": "https://medium.com/p/import",
+            "medium_import_status": medium_import_status,
             "linkedin_drafts_folder": linkedin_folder,
             "status": "published",
         }
