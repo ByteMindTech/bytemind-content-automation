@@ -13,6 +13,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
@@ -176,6 +177,9 @@ class TokenUsage(TimestampMixin, Base):
     """Daily token usage aggregates per provider."""
 
     __tablename__ = "token_usage"
+    __table_args__ = (
+        UniqueConstraint("date", "provider", "model", "prompt_type", name="uq_token_usage_daily"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
