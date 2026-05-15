@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     medium_default_status: Literal["draft", "public", "unlisted"] = "draft"
     medium_canonical_base_url: str = "https://bytemind.fr/blogs"
 
+    # ── Website (source of truth) ────────────────────────────
+    website_base_url: str = "https://bytemind.fr"
+
     # ── Content ──────────────────────────────────────────────
     content_source_path: str = "../ByteMindTech/src/content/blog"
     content_watch_extensions: str = ".md"

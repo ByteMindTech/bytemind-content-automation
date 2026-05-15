@@ -6,7 +6,7 @@
 
 ## What it does
 
-Detects new Markdown articles in the [ByteMindTech](https://github.com/ByteMindTech/ByteMindTech) website repo, enriches them with Gemini AI, generates SEO metadata + LinkedIn summaries, publishes to Medium, and tracks everything.
+Detects new Markdown articles in the [ByteMindTech](https://github.com/ByteMindTech/ByteMindTech) website repo, enriches them with Gemini AI, generates SEO metadata + LinkedIn drafts, and publishes to the website as the primary source of truth. It also builds a Medium syndication bundle the operator can import manually.
 
 ```
 src/content/blog/*.md  (ByteMindTech repo)
@@ -15,12 +15,33 @@ FastAPI API (OVH VPS / Docker)
          ↓
 Gemini AI Engine  →  SEO + LinkedIn + Medium summaries
          ↓
-Medium Publisher (dry-run by default)
+Website publish recorded (source of truth: bytemind.fr)
          ↓
-LinkedIn Drafts saved to content/generated/linkedin/
+Medium syndication bundle  →  content/generated/medium/{slug}/
+         ↓
+LinkedIn drafts saved      →  content/generated/linkedin/{slug}/
          ↓
 PostgreSQL  →  Analytics
 ```
+
+### Publishing strategy
+
+**bytemind.fr is the primary source of truth.**
+Medium is used as a syndication/distribution channel, not as the origin.
+
+| Target | How | When |
+|--------|-----|------|
+| Website | Recorded automatically on `POST /publish` | Always (default) |
+| Medium (manual import) | Operator imports bundle at medium.com/me/import | After syndication bundle is generated |
+| Medium (legacy API) | Optional token-based publish | Only for existing integration tokens |
+| LinkedIn | Drafts saved to disk | Always — operator posts manually |
+
+> **Medium API note:** Medium no longer issues new integration tokens as of January 2025.
+> See: [Medium Help Center — API/Importing](https://help.medium.com/hc/en-us/articles/213480228-API-Importing)
+> and the [official API repository](https://github.com/Medium/medium-api-docs).
+> The recommended workflow is to use the generated syndication bundle for manual import at
+> [medium.com/me/import](https://medium.com/me/import), which automatically applies
+> a canonical URL back to your website — protecting your SEO.
 
 ## Quick Start (local dev)
 
@@ -52,7 +73,6 @@ The API is now running at [http://localhost:8000](http://localhost:8000)
 ### 3. Generate content for an article
 
 ```bash
-# Using the ACTIONS_API_KEY from your .env
 curl -X POST http://localhost:8000/generate \
   -H "Authorization: Bearer YOUR_ACTIONS_API_KEY" \
   -H "Content-Type: application/json" \
@@ -61,13 +81,27 @@ curl -X POST http://localhost:8000/generate \
   }'
 ```
 
+### 4. Publish an article (website-first)
+
+```bash
+curl -X POST http://localhost:8000/publish \
+  -H "Authorization: Bearer YOUR_ACTIONS_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"article_id": "<uuid>", "publisher": "website"}'
+```
+
+Response includes:
+- `website_url` — canonical URL on bytemind.fr
+- `syndication_bundle_path` — path to the Medium import bundle
+- `linkedin_drafts_folder` — path to LinkedIn post variants
+
 ## API Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/health` | Platform status (no auth) |
 | POST | `/generate` | Ingest + AI enrich an article |
-| POST | `/publish` | Publish to Medium |
+| POST | `/publish` | Publish article (website + syndication bundle + LinkedIn drafts) |
 | POST | `/schedule` | Schedule future publication |
 | GET | `/articles` | List all articles |
 | GET | `/analytics` | Platform metrics |
@@ -75,6 +109,14 @@ curl -X POST http://localhost:8000/generate \
 | GET | `/analytics/published` | Published article list |
 
 All endpoints except `/health` require `Authorization: Bearer <token>`.
+
+### `POST /publish` — publisher options
+
+| `publisher` value | Behaviour |
+|-------------------|-----------|
+| `website` (default) | Website publish record + Medium bundle + LinkedIn drafts |
+| `medium` | + attempt token-based Medium API publish (requires existing `MEDIUM_INTEGRATION_TOKEN`) |
+| `all` | Same as `medium` |
 
 ## Authentication
 
@@ -91,7 +133,10 @@ Key settings:
 
 | Variable | Default | Description |
 |---|---|---|
+| `WEBSITE_BASE_URL` | `https://bytemind.fr` | Website source of truth |
+| `MEDIUM_CANONICAL_BASE_URL` | `https://bytemind.fr/blogs` | Canonical URL base for syndication |
 | `MEDIUM_DRY_RUN` | `true` | Skip real Medium API calls |
+| `MEDIUM_INTEGRATION_TOKEN` | — | Optional: legacy token for token-based API publish |
 | `AI_PROVIDER` | `auto` | `gemini` / `openai` / `auto` (fallback) |
 | `GEMINI_API_KEY` | — | Required for AI enrichment |
 | `SCHEDULER_PUBLISH_CRON` | `0 10 * * 5` | Friday 10 AM Paris |
@@ -105,28 +150,49 @@ app/
 ├── analytics/      Metrics service
 ├── config/         Pydantic BaseSettings
 ├── linkedin/       LinkedIn draft generator
-├── medium/         Medium API publisher
+├── medium/
+│   ├── publisher.py     Legacy token-based Medium API client
+│   └── syndication.py   Syndication bundle exporter (no token required)
 ├── models/         SQLAlchemy 2.0 ORM models
 ├── repositories/   DB access layer (async)
 ├── scheduler/      APScheduler integration
 ├── security/       JWT + API key auth
 ├── services/       Content + Publishing orchestration
 └── utils/          Markdown parser, structured logging
+
+content/
+├── generated/
+│   ├── medium/{slug}/       Medium syndication bundles
+│   │   ├── article.md       Full article with canonical URL in front-matter
+│   │   ├── metadata.json    Structured metadata + optional API payload
+│   │   └── README.md        Operator instructions for manual import
+│   └── linkedin/{slug}/     LinkedIn post variants
 ```
+
+## Medium Syndication Workflow
+
+After calling `POST /publish`, a bundle is ready at `content/generated/medium/{slug}/`:
+
+1. **Recommended — manual import:**
+   - Go to [medium.com/me/import](https://medium.com/me/import)
+   - Paste the canonical URL from `metadata.json`
+   - Medium imports the article and applies the canonical link automatically (SEO-safe)
+
+2. **Alternative — paste content:**
+   - Copy the body from `article.md` (below the `---` front-matter block)
+   - Create a new story on Medium
+   - Set the canonical URL in story settings to the value in `metadata.json`
+
+3. **Legacy — token-based API (existing tokens only):**
+   - Use the `medium_api_payload` object in `metadata.json`
+   - Call `POST /publish` with `"publisher": "medium"`
 
 ## Development
 
 ```bash
-# Install dev dependencies
 pip install -e ".[dev]"
-
-# Run tests
 pytest
-
-# Lint
 ruff check app/ tests/
-
-# Type check
 mypy app/
 ```
 
@@ -135,7 +201,6 @@ mypy app/
 See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for full OVH VPS setup guide.
 
 ```bash
-# Production stack
 docker compose up -d
 ```
 
@@ -150,7 +215,7 @@ Required secrets: `OVH_VPS_HOST`, `OVH_VPS_USER`, `OVH_VPS_SSH_KEY`.
 - Rate limiting on all endpoints
 - GDPR: no PII stored in article content
 - Audit log for all generate/publish actions
-- TLS termination at OVH reverse proxy (nginx)
+- TLS termination via Caddy (auto Let's Encrypt)
 
 ## License
 

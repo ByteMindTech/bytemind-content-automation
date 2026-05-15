@@ -27,9 +27,17 @@ class PublishRequest(BaseModel):
     """POST /publish — publish an enriched article."""
 
     article_id: uuid.UUID
-    publisher: str = Field(default="medium", description="Target publisher.")
+    publisher: str = Field(
+        default="website",
+        description=(
+            "Publishing target. "
+            "'website' (default): record website publish + generate Medium syndication bundle. "
+            "'medium': attempt token-based Medium API publish (requires existing integration token). "
+            "'all': website publish + bundle + Medium API publish attempt."
+        ),
+    )
     publish_status: str = Field(
-        default="draft", description="medium publish status: draft | public | unlisted"
+        default="draft", description="Medium publish status when using token-based publish: draft | public | unlisted"
     )
 
 
@@ -81,6 +89,9 @@ class GenerateResponse(BaseModel):
 class PublishResponse(BaseModel):
     article_id: str
     slug: str
+    website_url: str
+    canonical_url: str
+    syndication_bundle_path: str | None
     medium: dict[str, Any]
     linkedin_drafts_folder: str | None
     status: str

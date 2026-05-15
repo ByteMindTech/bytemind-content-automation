@@ -20,13 +20,22 @@ async def publish(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> PublishResponse:
     """
-    Publish an enriched article to Medium (or dry-run if MEDIUM_DRY_RUN=true)
-    and save LinkedIn drafts to the filesystem.
+    Publish an enriched article.
+
+    Default behaviour (publisher='website'):
+    - Records the article as published on the website (source of truth)
+    - Generates a Medium syndication bundle at content/generated/medium/{slug}/
+    - Saves LinkedIn drafts
+
+    Use publisher='medium' or 'all' to additionally attempt a token-based
+    Medium API publish (requires a pre-existing integration token — Medium no
+    longer issues new tokens as of January 2025).
     """
     service = PublishingService(db)
     result = await service.publish_article(
         body.article_id,
         actor=actor,
         publish_status=body.publish_status,
+        publisher=body.publisher,
     )
     return PublishResponse(**result)

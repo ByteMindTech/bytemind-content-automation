@@ -43,7 +43,8 @@ class TestMarkdownParser:
         assert all("anchor" in item for item in parsed.toc)
 
     def test_missing_required_field_raises(self):
-        bad_md = "---\ntitle: No Slug Here\n---\nContent"
+        """Only 'title' is required; all other fields are auto-derived."""
+        bad_md = "---\ncategory: ai\n---\nContent without a title"
         with pytest.raises(ValueError, match="Missing required frontmatter fields"):
             self.parser.parse_string(bad_md)
 

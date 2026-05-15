@@ -1,4 +1,15 @@
-"""Medium publisher — full API client with dry-run mode."""
+"""
+Medium publisher — legacy token-based API client with dry-run mode.
+
+⚠️  Medium's API is no longer supported and new integration tokens are not
+    issued as of January 2025.
+    Reference: https://github.com/Medium/medium-api-docs
+    Reference: https://help.medium.com/hc/en-us/articles/213480228-API-Importing
+
+    This module is kept for accounts that already hold a self-issued integration
+    token. For all other cases use MediumSyndicationExporter (syndication.py)
+    to generate a bundle for manual import at medium.com/me/import.
+"""
 
 from __future__ import annotations
 
@@ -19,10 +30,14 @@ MEDIUM_API_BASE = "https://api.medium.com/v1"
 
 class MediumPublisher:
     """
-    Publishes articles to Medium via the Integration Token API.
+    Legacy token-based Medium publisher.
 
-    Set MEDIUM_DRY_RUN=true (default) to skip actual API calls
-    during development or when no token is configured.
+    Only usable with a pre-existing self-issued integration token.
+    Set MEDIUM_DRY_RUN=true (default) to skip actual API calls when no
+    token is configured or during local development.
+
+    For new integrations (no existing token), use MediumSyndicationExporter
+    to generate a bundle for manual import at medium.com/me/import.
     """
 
     def __init__(self) -> None:
