@@ -10,6 +10,17 @@ from pathlib import Path
 import frontmatter
 
 
+# Default category → colour mapping
+_CATEGORY_COLORS: dict[str, str] = {
+    "ai": "#00d4ff",
+    "cloud": "#4285f4",
+    "data": "#34a853",
+    "security": "#ea4335",
+    "devops": "#fbbc04",
+    "architecture": "#9334e6",
+}
+
+
 @dataclass
 class ParsedArticle:
     """Parsed representation of a Markdown article."""
@@ -46,10 +57,7 @@ class ParsedArticle:
 class MarkdownParser:
     """Parse .md files with YAML frontmatter in ByteMindTech format."""
 
-    REQUIRED_FIELDS = {
-        "title", "slug", "date", "dateLabel", "category",
-        "categoryColor", "tags", "author", "excerpt",
-    }
+    REQUIRED_FIELDS = {"title"}
 
     # Matches fenced code blocks: ```lang ... ```
     _CODE_BLOCK_RE = re.compile(
@@ -70,6 +78,33 @@ class MarkdownParser:
         body = post.content
 
         self._validate_metadata(meta)
+
+        # Auto-derive missing fields
+        title = meta["title"]
+
+        if "slug" not in meta:
+            meta["slug"] = re.sub(r"[^\w\s-]", "", title.lower())
+            meta["slug"] = re.sub(r"[\s]+", "-", meta["slug"]).strip("-")
+
+        if "date" not in meta:
+            meta["date"] = datetime.now()
+
+        if "category" not in meta:
+            meta["category"] = "general"
+
+        if "dateLabel" not in meta:
+            d = meta["date"] if isinstance(meta["date"], datetime) else datetime.fromisoformat(str(meta["date"]))
+            meta["dateLabel"] = d.strftime("%B %d, %Y")
+
+        if "categoryColor" not in meta:
+            meta["categoryColor"] = _CATEGORY_COLORS.get(meta["category"].lower(), "#00d4ff")
+
+        if "author" not in meta:
+            meta["author"] = "ByteMind"
+
+        if "excerpt" not in meta:
+            paragraphs = [p.strip() for p in body.split("\n\n") if p.strip() and not p.strip().startswith("#")]
+            meta["excerpt"] = (paragraphs[0][:200] + "...") if paragraphs else title
 
         # Parse date — accept datetime or ISO string
         date_val = meta["date"]
