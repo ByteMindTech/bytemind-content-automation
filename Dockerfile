@@ -34,11 +34,10 @@ COPY --from=builder /deps /usr/local/lib/python3.12/site-packages
 
 # Copy application source
 COPY app/ ./app/
-COPY content/ ./content/
-COPY alembic/ ./alembic/ 2>/dev/null || true
-COPY alembic.ini . 2>/dev/null || true
+COPY alembic/ ./alembic/
+COPY alembic.ini .
 
-# Ensure generated content dirs exist
+# Ensure content dirs exist (may not be in repo)
 RUN mkdir -p content/generated/linkedin content/drafts content/published \
     && chown -R bytemind:bytemind /app
 
