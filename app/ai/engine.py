@@ -36,18 +36,18 @@ _OPENAI_COSTS = {
     "gpt-4o-mini": {"input": 0.15, "output": 0.60},
 }
 
-# Smart multi-LLM routing: all prompts use flash by default (cost-effective)
+# Smart multi-LLM routing: cheap prompts → flash, complex → pro
 MODEL_ROUTING: dict[str, dict[str, str]] = {
     "seo_title": {"gemini": "gemini-2.5-flash", "openai": "gpt-4o-mini"},
     "seo_description": {"gemini": "gemini-2.5-flash", "openai": "gpt-4o-mini"},
     "hashtags": {"gemini": "gemini-2.5-flash", "openai": "gpt-4o-mini"},
     "cta": {"gemini": "gemini-2.5-flash", "openai": "gpt-4o-mini"},
-    "linkedin_short": {"gemini": "gemini-2.5-flash", "openai": "gpt-4o"},
-    "linkedin_medium": {"gemini": "gemini-2.5-flash", "openai": "gpt-4o"},
-    "linkedin_technical": {"gemini": "gemini-2.5-flash", "openai": "gpt-4o"},
-    "medium_intro": {"gemini": "gemini-2.5-flash", "openai": "gpt-4o"},
+    "linkedin_short": {"gemini": "gemini-2.5-pro", "openai": "gpt-4o"},
+    "linkedin_medium": {"gemini": "gemini-2.5-pro", "openai": "gpt-4o"},
+    "linkedin_technical": {"gemini": "gemini-2.5-pro", "openai": "gpt-4o"},
+    "medium_intro": {"gemini": "gemini-2.5-pro", "openai": "gpt-4o"},
     "readability": {"gemini": "gemini-2.5-flash", "openai": "gpt-4o"},
-    "revision": {"gemini": "gemini-2.5-flash", "openai": "gpt-4o"},
+    "revision": {"gemini": "gemini-2.5-pro", "openai": "gpt-4o"},
 }
 
 # Concurrency limiter to avoid rate-limiting from AI providers
