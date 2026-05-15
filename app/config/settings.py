@@ -39,7 +39,7 @@ class Settings(BaseSettings):
 
     # ── AI Providers ─────────────────────────────────────────
     gemini_api_key: str = Field(default="")
-    gemini_model: str = "gemini-1.5-pro"
+    gemini_model: str = "gemini-2.5-flash"
     gemini_max_tokens: int = 8192
     gemini_temperature: float = 0.7
 

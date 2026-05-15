@@ -28,29 +28,28 @@ _settings = get_settings()
 
 # Token cost per 1M tokens (approximate, update as pricing changes)
 _GEMINI_COSTS = {
-    "gemini-1.5-pro": {"input": 3.50, "output": 10.50},
-    "gemini-1.5-flash": {"input": 0.075, "output": 0.30},
-    "gemini-2.0-flash": {"input": 0.10, "output": 0.40},
+    "gemini-2.5-flash": {"input": 0.15, "output": 0.60},
+    "gemini-2.5-pro": {"input": 1.25, "output": 10.00},
 }
 _OPENAI_COSTS = {
     "gpt-4o": {"input": 2.50, "output": 10.00},
     "gpt-4o-mini": {"input": 0.15, "output": 0.60},
 }
 
-# Smart multi-LLM routing: cheap prompts → flash/mini, complex → pro/4o
+# Smart multi-LLM routing: cheap prompts → flash, complex → pro
 MODEL_ROUTING: dict[str, dict[str, str]] = {
     # prompt_type → {gemini: model, openai: model}
-    "seo_title": {"gemini": "gemini-2.0-flash", "openai": "gpt-4o-mini"},
-    "seo_description": {"gemini": "gemini-2.0-flash", "openai": "gpt-4o-mini"},
-    "hashtags": {"gemini": "gemini-2.0-flash", "openai": "gpt-4o-mini"},
-    "cta": {"gemini": "gemini-2.0-flash", "openai": "gpt-4o-mini"},
+    "seo_title": {"gemini": "gemini-2.5-flash", "openai": "gpt-4o-mini"},
+    "seo_description": {"gemini": "gemini-2.5-flash", "openai": "gpt-4o-mini"},
+    "hashtags": {"gemini": "gemini-2.5-flash", "openai": "gpt-4o-mini"},
+    "cta": {"gemini": "gemini-2.5-flash", "openai": "gpt-4o-mini"},
     # Complex prompts — need higher-quality models
-    "linkedin_short": {"gemini": "gemini-1.5-pro", "openai": "gpt-4o"},
-    "linkedin_medium": {"gemini": "gemini-1.5-pro", "openai": "gpt-4o"},
-    "linkedin_technical": {"gemini": "gemini-1.5-pro", "openai": "gpt-4o"},
-    "medium_intro": {"gemini": "gemini-1.5-pro", "openai": "gpt-4o"},
-    "readability": {"gemini": "gemini-1.5-pro", "openai": "gpt-4o"},
-    "revision": {"gemini": "gemini-1.5-pro", "openai": "gpt-4o"},
+    "linkedin_short": {"gemini": "gemini-2.5-pro", "openai": "gpt-4o"},
+    "linkedin_medium": {"gemini": "gemini-2.5-pro", "openai": "gpt-4o"},
+    "linkedin_technical": {"gemini": "gemini-2.5-pro", "openai": "gpt-4o"},
+    "medium_intro": {"gemini": "gemini-2.5-pro", "openai": "gpt-4o"},
+    "readability": {"gemini": "gemini-2.5-pro", "openai": "gpt-4o"},
+    "revision": {"gemini": "gemini-2.5-pro", "openai": "gpt-4o"},
 }
 
 # Concurrency limiter to avoid rate-limiting from AI providers
