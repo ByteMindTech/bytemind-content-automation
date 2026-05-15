@@ -38,7 +38,8 @@ COPY alembic/ ./alembic/
 COPY alembic.ini .
 
 # Ensure content dirs exist (may not be in repo)
-RUN mkdir -p content/generated/linkedin content/drafts content/published \
+RUN mkdir -p content/generated/linkedin content/generated/medium \
+             content/drafts content/published \
     && chown -R bytemind:bytemind /app
 
 USER bytemind
