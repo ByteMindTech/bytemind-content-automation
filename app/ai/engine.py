@@ -36,20 +36,18 @@ _OPENAI_COSTS = {
     "gpt-4o-mini": {"input": 0.15, "output": 0.60},
 }
 
-# Smart multi-LLM routing: cheap prompts → flash, complex → pro
+# Smart multi-LLM routing: all prompts use flash by default (cost-effective)
 MODEL_ROUTING: dict[str, dict[str, str]] = {
-    # prompt_type → {gemini: model, openai: model}
     "seo_title": {"gemini": "gemini-2.5-flash", "openai": "gpt-4o-mini"},
     "seo_description": {"gemini": "gemini-2.5-flash", "openai": "gpt-4o-mini"},
     "hashtags": {"gemini": "gemini-2.5-flash", "openai": "gpt-4o-mini"},
     "cta": {"gemini": "gemini-2.5-flash", "openai": "gpt-4o-mini"},
-    # Complex prompts — need higher-quality models
-    "linkedin_short": {"gemini": "gemini-2.5-pro", "openai": "gpt-4o"},
-    "linkedin_medium": {"gemini": "gemini-2.5-pro", "openai": "gpt-4o"},
-    "linkedin_technical": {"gemini": "gemini-2.5-pro", "openai": "gpt-4o"},
-    "medium_intro": {"gemini": "gemini-2.5-pro", "openai": "gpt-4o"},
-    "readability": {"gemini": "gemini-2.5-pro", "openai": "gpt-4o"},
-    "revision": {"gemini": "gemini-2.5-pro", "openai": "gpt-4o"},
+    "linkedin_short": {"gemini": "gemini-2.5-flash", "openai": "gpt-4o"},
+    "linkedin_medium": {"gemini": "gemini-2.5-flash", "openai": "gpt-4o"},
+    "linkedin_technical": {"gemini": "gemini-2.5-flash", "openai": "gpt-4o"},
+    "medium_intro": {"gemini": "gemini-2.5-flash", "openai": "gpt-4o"},
+    "readability": {"gemini": "gemini-2.5-flash", "openai": "gpt-4o"},
+    "revision": {"gemini": "gemini-2.5-flash", "openai": "gpt-4o"},
 }
 
 # Concurrency limiter to avoid rate-limiting from AI providers
@@ -112,9 +110,22 @@ class GeminiClient:
             response = await model.generate_content_async(prompt.text)
         latency = int(time.time() * 1000) - start_ms
 
-        raw_output = response.text or ""
-        tokens_in = response.usage_metadata.prompt_token_count or 0
-        tokens_out = response.usage_metadata.candidates_token_count or 0
+        # Handle safety-blocked or empty responses
+        try:
+            raw_output = response.text or ""
+        except ValueError:
+            raw_output = ""
+            if response.candidates and response.candidates[0].finish_reason:
+                logger.warning(
+                    "gemini_blocked",
+                    prompt_type=prompt.prompt_type,
+                    finish_reason=str(response.candidates[0].finish_reason),
+                )
+            if not raw_output:
+                raise RuntimeError(f"Gemini returned empty/blocked response for {prompt.prompt_type}")
+
+        tokens_in = getattr(response.usage_metadata, "prompt_token_count", 0) or 0
+        tokens_out = getattr(response.usage_metadata, "candidates_token_count", 0) or 0
         cost = self._calc_cost(model_name, tokens_in, tokens_out, _GEMINI_COSTS)
 
         sanitized = self._validator.sanitize(raw_output)
