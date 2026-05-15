@@ -86,7 +86,7 @@ Article title: {article.title}
 Excerpt: {article.excerpt}
 Content preview: {body_preview}
 """,
-            max_output_tokens=256,
+            max_output_tokens=2048,
         )
 
     def build_linkedin_medium(self, article: ParsedArticle) -> PromptTemplate:
@@ -106,7 +106,7 @@ Category: {article.category}
 Excerpt: {article.excerpt}
 Content preview: {body_preview}
 """,
-            max_output_tokens=512,
+            max_output_tokens=2048,
         )
 
     def build_linkedin_technical(self, article: ParsedArticle) -> PromptTemplate:
@@ -130,7 +130,7 @@ Tags: {', '.join(article.tags)}
 Excerpt: {article.excerpt}
 Content preview: {body_preview}
 """,
-            max_output_tokens=1024,
+            max_output_tokens=4096,
         )
 
     def build_medium_intro(self, article: ParsedArticle) -> PromptTemplate:
@@ -149,7 +149,7 @@ Article title: {article.title}
 Excerpt: {article.excerpt}
 Content preview: {body_preview}
 """,
-            max_output_tokens=600,
+            max_output_tokens=4096,
         )
 
     def build_hashtags(self, article: ParsedArticle) -> PromptTemplate:
