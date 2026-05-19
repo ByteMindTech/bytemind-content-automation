@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from app.utils.logging import get_logger
@@ -11,13 +11,6 @@ from app.utils.logging import get_logger
 logger = get_logger(__name__)
 
 _OUTPUT_BASE = Path("content/generated/linkedin")
-
-
-def _append_article_link(text: str, url: str) -> str:
-    """Append the article URL to a LinkedIn draft."""
-    if url in text:
-        return text
-    return f"{text}\n\n🔗 Read the full article: {url}"
 
 
 class LinkedInGenerator:
@@ -32,7 +25,6 @@ class LinkedInGenerator:
             technical.txt
             hashtags.txt
             cta.txt
-            article_url.txt
             metadata.json
     """
 
@@ -46,7 +38,6 @@ class LinkedInGenerator:
         hashtags: str,
         cta: str,
         article_title: str,
-        website_base_url: str = "https://bytemind.fr",
     ) -> Path:
         """
         Save all LinkedIn variants to disk.
@@ -55,30 +46,17 @@ class LinkedInGenerator:
         folder = _OUTPUT_BASE / slug
         folder.mkdir(parents=True, exist_ok=True)
 
-        article_url = (
-            f"{website_base_url.rstrip('/')}/blogs/{slug}"
-            "?utm_source=linkedin&utm_medium=social&utm_campaign=blog"
-        )
-        short = _append_article_link(short, article_url)
-        medium = _append_article_link(medium, article_url)
-        technical = _append_article_link(technical, article_url)
-
         (folder / "short.txt").write_text(short, encoding="utf-8")
         (folder / "medium.txt").write_text(medium, encoding="utf-8")
         (folder / "technical.txt").write_text(technical, encoding="utf-8")
         (folder / "hashtags.txt").write_text(hashtags, encoding="utf-8")
         (folder / "cta.txt").write_text(cta, encoding="utf-8")
-        (folder / "article_url.txt").write_text(article_url, encoding="utf-8")
 
         metadata = {
             "slug": slug,
             "article_title": article_title,
-            "article_url": article_url,
-            "generated_at": datetime.now(tz=UTC).isoformat(),
+            "generated_at": datetime.now(tz=timezone.utc).isoformat(),
             "variants": ["short", "medium", "technical"],
-            "utm_source": "linkedin",
-            "utm_medium": "social",
-            "utm_campaign": "blog",
         }
         (folder / "metadata.json").write_text(
             json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8"

@@ -8,6 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+
 # ── Request schemas ──────────────────────────────────────────────────────────
 
 class GenerateRequest(BaseModel):
@@ -31,17 +32,12 @@ class PublishRequest(BaseModel):
         description=(
             "Publishing target. "
             "'website' (default): record website publish + generate Medium syndication bundle. "
-            "'medium': attempt token-based Medium API publish "
-            "(requires existing integration token). "
+            "'medium': attempt token-based Medium API publish (requires existing integration token). "
             "'all': website publish + bundle + Medium API publish attempt."
         ),
     )
     publish_status: str = Field(
-        default="draft",
-        description=(
-            "Medium publish status when using token-based publish: "
-            "draft | public | unlisted"
-        ),
+        default="draft", description="Medium publish status when using token-based publish: draft | public | unlisted"
     )
 
 
@@ -96,10 +92,7 @@ class PublishResponse(BaseModel):
     website_url: str
     canonical_url: str
     syndication_bundle_path: str | None
-    website_commit: dict[str, Any] | None = None
     medium: dict[str, Any]
-    medium_import_url: str = "https://medium.com/p/import"
-    medium_import_status: str | None = None
     linkedin_drafts_folder: str | None
     status: str
 
@@ -123,33 +116,3 @@ class HealthResponse(BaseModel):
     environment: str
     medium_dry_run: bool
     ai_provider: str
-
-
-class MediumImportQueueItem(BaseModel):
-    article_id: str
-    slug: str
-    title: str
-    website_article_url: str
-    medium_import_url: str = "https://medium.com/p/import"
-    canonical_url: str
-    status: str
-    seo_title: str | None = None
-    tags: list[str] = Field(default_factory=list)
-    excerpt: str | None = None
-    queued_at: datetime
-    imported_at: datetime | None = None
-
-
-class MediumImportStatusResponse(BaseModel):
-    article_id: str
-    status: str
-    website_url: str
-    canonical_url: str
-    medium_url: str | None = None
-    canonical_verified: bool = False
-    canonical_found: str | None = None
-    verified_at: datetime | None = None
-
-
-class MarkImportedRequest(BaseModel):
-    medium_url: str = Field(description="The Medium URL after import")

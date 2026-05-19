@@ -58,8 +58,7 @@ class Article(TimestampMixin, Base):
     publish_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     read_time_minutes: Mapped[int | None] = mapped_column(Integer)
     word_count: Mapped[int | None] = mapped_column(Integer)
-    # Status: pending | processing | enriched | revising | awaiting_approval |
-    # approved | published | rejected | failed
+    # Status: pending | processing | enriched | revising | awaiting_approval | approved | published | rejected | failed
     status: Mapped[str] = mapped_column(
         String(32), nullable=False, default="pending", index=True
     )
@@ -152,33 +151,6 @@ class ScheduledJob(TimestampMixin, Base):
     apscheduler_job_id: Mapped[str | None] = mapped_column(String(255))
 
     article: Mapped["Article"] = relationship("Article", back_populates="scheduled_jobs")
-
-
-class MediumImport(TimestampMixin, Base):
-    """Tracks Medium import lifecycle for published articles."""
-
-    __tablename__ = "medium_imports"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    article_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("articles.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    website_url: Mapped[str] = mapped_column(String(1024), nullable=False)
-    canonical_url: Mapped[str] = mapped_column(String(1024), nullable=False)
-    medium_url: Mapped[str | None] = mapped_column(String(1024))
-    # Status: queued | import_ready | imported | verified | canonical_mismatch | failed
-    status: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="queued", index=True
-    )
-    canonical_verified: Mapped[bool] = mapped_column(Boolean, default=False)
-    canonical_found: Mapped[str | None] = mapped_column(String(1024))
-    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    imported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    notes: Mapped[str | None] = mapped_column(Text)
-
-    article: Mapped["Article"] = relationship("Article", backref="medium_imports")
 
 
 class AuditLog(TimestampMixin, Base):

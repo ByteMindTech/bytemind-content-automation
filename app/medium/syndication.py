@@ -2,8 +2,7 @@
 Medium syndication exporter.
 
 Builds a Medium-ready content bundle the operator can:
-  1. Publish on bytemind.fr first, then import by URL via medium.com/p/import
-     (recommended)
+  1. Import manually via medium.com/me/import (recommended)
   2. Publish via the legacy self-issued integration token (optional, only
      for accounts that obtained a token before Medium closed new integrations)
 
@@ -22,7 +21,7 @@ from __future__ import annotations
 
 import json
 import textwrap
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from app.config import get_settings
@@ -38,9 +37,8 @@ class MediumSyndicationExporter:
     """
     Builds a complete Medium syndication bundle from enriched article data.
 
-    No Medium API credentials required — the output is designed for URL-based
-    import via Medium's import tool or for use with an existing integration
-    token.
+    No Medium API credentials required — the output is designed for manual
+    import OR for use with an existing integration token.
     """
 
     def __init__(self) -> None:
@@ -99,7 +97,6 @@ class MediumSyndicationExporter:
             "seo_description": seo_description,
             "canonical_url": canonical_url,
             "website_url": website_url,
-            "medium_import_url": "https://medium.com/p/import",
             "tags": medium_tags,
             "category": category,
             "author": author,
@@ -114,7 +111,7 @@ class MediumSyndicationExporter:
                 "tags": medium_tags,
                 "publishStatus": _settings.medium_default_status,
             },
-            "generated_at": datetime.now(tz=UTC).isoformat(),
+            "generated_at": datetime.now(tz=timezone.utc).isoformat(),
         }
         (folder / "metadata.json").write_text(
             json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -122,44 +119,44 @@ class MediumSyndicationExporter:
 
         # README.md — operator instructions
         readme = textwrap.dedent(f"""\
-            # Medium Syndication — {title}
+            # Medium Syndication Bundle — {title}
 
             Generated: {metadata["generated_at"]}
             Canonical URL: {canonical_url}
 
             ## How to publish on Medium
 
-            ### Step 1 — Confirm article is live
-            Verify the article is accessible at:
-              {website_url}
+            ### Option A — Manual import (recommended)
+            1. Log in to Medium at https://medium.com
+            2. Click your profile → **Stories** → **Import a story**
+            3. Paste the canonical URL: `{canonical_url}`
+            4. Medium will import the article and automatically apply the canonical
+               link back to your website, protecting your SEO.
+            5. Review the imported content, then click **Publish**.
 
-            ### Step 2 — Import on Medium
-            1. Go to {metadata["medium_import_url"]}
-            2. Paste this URL: {website_url}
-            3. Medium will import the article and automatically set the canonical URL
-               back to bytemind.fr — preserving your SEO authority.
+            ### Option B — Paste the Markdown content
+            1. Log in to Medium and create a new story.
+            2. Open `article.md` in this folder.
+            3. Copy the content body (below the `---` front-matter block).
+            4. Paste into the Medium editor.
+            5. Before publishing, go to **More settings** → set the canonical URL to:
+               `{canonical_url}`
+            6. Add tags from `metadata.json` and publish.
 
-            ### Step 3 — Review and publish
-            1. Review the imported content in Medium's editor
-            2. Add tags: {tags}
-            3. Click Publish
+            ### Option C — Token-based API (existing integration tokens only)
+            Medium no longer issues new integration tokens (as of January 2025).
+            Reference: https://help.medium.com/hc/en-us/articles/213480228-API-Importing
+
+            If you already have a self-issued integration token, you can use
+            the payload in `metadata.json` → `medium_api_payload` with:
+                POST https://api.medium.com/v1/users/{{authorId}}/posts
+                Authorization: Bearer {{your_token}}
 
             ## SEO note
-            Medium's import tool automatically sets rel="canonical" to the source URL.
-            This means search engines credit bytemind.fr as the original source.
-            Canonical URL: {canonical_url}
-
-            ## Alternative: Paste markdown manually
-            If you prefer not to use the import tool:
-            1. Create a new story on Medium
-            2. Copy content from article.md (below the --- front-matter)
-            3. Before publishing, go to More settings → set canonical URL to: {canonical_url}
-            4. Add tags and publish
-
-            ## Legacy: Token-based API (existing tokens only)
-            Medium no longer issues new integration tokens (January 2025).
-            Reference: https://help.medium.com/hc/en-us/articles/213480228
-            If you have an existing token, use the payload in metadata.json → medium_api_payload.
+            Always ensure the canonical URL is set to:
+                {canonical_url}
+            This signals to search engines that {website_url} is the original source,
+            preventing duplicate-content penalties.
         """)
         (folder / "README.md").write_text(readme, encoding="utf-8")
 

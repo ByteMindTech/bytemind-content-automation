@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.schemas import PublishRequest, PublishResponse
 from app.repositories import get_db
 from app.security import require_api_key
-from app.services.medium_import_service import MediumImportService
 from app.services.publishing_service import PublishingService
 
 router = APIRouter()
@@ -39,17 +38,4 @@ async def publish(
         publish_status=body.publish_status,
         publisher=body.publisher,
     )
-
-    medium_import_service = MediumImportService(db)
-    await medium_import_service.queue_for_import(
-        body.article_id,
-        website_url=result["website_url"],
-        canonical_url=result["canonical_url"],
-    )
-    if result["medium"].get("status") == "published" and result["medium"].get("url"):
-        await medium_import_service.mark_as_imported(
-            body.article_id,
-            medium_url=result["medium"]["url"],
-        )
-
     return PublishResponse(**result)

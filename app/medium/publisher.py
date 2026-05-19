@@ -8,14 +8,14 @@ Medium publisher — legacy token-based API client with dry-run mode.
 
     This module is kept for accounts that already hold a self-issued integration
     token. For all other cases use MediumSyndicationExporter (syndication.py)
-    to generate a bundle for manual import at medium.com/p/import.
+    to generate a bundle for manual import at medium.com/me/import.
 """
 
 from __future__ import annotations
 
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 import httpx
 
@@ -37,7 +37,7 @@ class MediumPublisher:
     token is configured or during local development.
 
     For new integrations (no existing token), use MediumSyndicationExporter
-    to generate a bundle for manual import at medium.com/p/import.
+    to generate a bundle for manual import at medium.com/me/import.
     """
 
     def __init__(self) -> None:
