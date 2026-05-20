@@ -15,9 +15,8 @@ venv/
 ENV/
 
 # Secrets — NEVER commit these
-.env
-.env.local
-.env.production
+.env*
+!.env.example
 secrets/
 
 # IDE
