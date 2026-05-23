@@ -2,7 +2,7 @@
 	email contact@bytemind.tech
 }
 
-api.bytemind.tech {
+api.bytemind.cloud {
 	reverse_proxy app:8000
 
 	header {
