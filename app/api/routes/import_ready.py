@@ -291,10 +291,10 @@ def _render_table_as_image(table_lines: list[str]) -> str:
 
 
 def _render_table_as_text(table_lines: list[str]) -> str:
-    """Convert markdown table to Medium-compatible format (bulleted list).
+    """Convert markdown table to Medium-compatible format.
 
-    Medium strips complex <p> formatting during import, but reliably preserves
-    <ul><li> lists. Each row becomes a list item with header labels.
+    Medium strips complex HTML inside lists. Use simple plain-text paragraphs
+    with a clear structure that Medium's importer preserves.
     """
     rows: list[list[str]] = []
     for line in table_lines:
@@ -307,15 +307,16 @@ def _render_table_as_text(table_lines: list[str]) -> str:
     header = rows[0]
     data_rows = rows[2:]  # skip separator
 
-    html = "<ul>\n"
+    html = ""
     for row in data_rows:
         parts = []
         for i, cell in enumerate(row):
             if i < len(header) and cell:
-                parts.append(f"<strong>{_inline_md(header[i])}</strong>: {_inline_md(cell)}")
+                # Strip markdown bold markers for clean text
+                clean_cell = re.sub(r"\*\*(.+?)\*\*", r"\1", cell)
+                parts.append(f"{header[i]}: {clean_cell}")
         if parts:
-            html += f"<li>{' — '.join(parts)}</li>\n"
-    html += "</ul>\n"
+            html += f"<p>{'  |  '.join(parts)}</p>\n"
 
     return html
 
@@ -330,37 +331,12 @@ def _inline_md(text: str) -> str:
 
 
 def _render_code_block(lang: str, code: str, *, plain: bool = False) -> str:
-    """Render a code block for Medium import.
+    """Render a code block as a single <pre> for Medium import.
 
-    Uses one <pre> per line — Medium's importer collapses newlines within a
-    single <pre>, but consecutive <pre> elements are rendered as separate lines
-    within the same code block.
-
-    Args:
-        lang: Programming language identifier
-        code: The code content
-        plain: If True, omit language comment header
+    Plain text only — no language headers. User handles language manually.
     """
-    code_lines = code.rstrip().split("\n")
-
-    # Optional language header as first line
-    all_lines: list[str] = []
-    if not plain and lang:
-        lang_display = _LANG_NAMES.get(lang.lower(), lang.upper() if lang else "")
-        if lang_display:
-            comment_char = _LANG_COMMENT.get(lang.lower(), "#")
-            if comment_char == "<!--":
-                all_lines.append(f"&lt;!-- {lang_display} --&gt;")
-            elif comment_char == "/*":
-                all_lines.append(f"/* {lang_display} */")
-            else:
-                all_lines.append(f"{html_escape(comment_char)} {lang_display}")
-
-    for line in code_lines:
-        all_lines.append(html_escape(line) if line else "")
-
-    # One <pre> per line — Medium treats consecutive <pre> as one code block
-    return "".join(f"<pre>{line}</pre>\n" for line in all_lines)
+    escaped = html_escape(code.rstrip())
+    return f"<pre>{escaped}</pre>\n"
 
 
 def _markdown_to_medium_html(
