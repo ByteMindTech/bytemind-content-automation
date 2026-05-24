@@ -145,3 +145,8 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(api_router)
+
+# ── GraphQL endpoint for Medium story management ──────────────────────────────
+from app.api.graphql_stories import graphql_app  # noqa: E402
+
+app.include_router(graphql_app, prefix="/graphql", tags=["graphql"])
