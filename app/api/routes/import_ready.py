@@ -291,7 +291,11 @@ def _render_table_as_image(table_lines: list[str]) -> str:
 
 
 def _render_table_as_text(table_lines: list[str]) -> str:
-    """Convert markdown table to Medium-compatible format (structured list)."""
+    """Convert markdown table to Medium-compatible format (bulleted list).
+
+    Medium strips complex <p> formatting during import, but reliably preserves
+    <ul><li> lists. Each row becomes a list item with header labels.
+    """
     rows: list[list[str]] = []
     for line in table_lines:
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
@@ -303,13 +307,15 @@ def _render_table_as_text(table_lines: list[str]) -> str:
     header = rows[0]
     data_rows = rows[2:]  # skip separator
 
-    html = ""
+    html = "<ul>\n"
     for row in data_rows:
         parts = []
         for i, cell in enumerate(row):
             if i < len(header) and cell:
                 parts.append(f"<strong>{_inline_md(header[i])}</strong>: {_inline_md(cell)}")
-        html += f"<p>{' · '.join(parts)}</p>\n"
+        if parts:
+            html += f"<li>{' — '.join(parts)}</li>\n"
+    html += "</ul>\n"
 
     return html
 
@@ -326,9 +332,9 @@ def _inline_md(text: str) -> str:
 def _render_code_block(lang: str, code: str, *, plain: bool = False) -> str:
     """Render a code block for Medium import.
 
-    Uses one <pre> per line to prevent Medium from collapsing multi-line blocks
-    into a single line. Medium treats each <pre> as a separate paragraph within
-    the same code block when they appear consecutively.
+    Uses one <pre> per line — Medium's importer collapses newlines within a
+    single <pre>, but consecutive <pre> elements are rendered as separate lines
+    within the same code block.
 
     Args:
         lang: Programming language identifier
@@ -338,29 +344,23 @@ def _render_code_block(lang: str, code: str, *, plain: bool = False) -> str:
     code_lines = code.rstrip().split("\n")
 
     # Optional language header as first line
-    lang_header_line = ""
+    all_lines: list[str] = []
     if not plain and lang:
         lang_display = _LANG_NAMES.get(lang.lower(), lang.upper() if lang else "")
         if lang_display:
             comment_char = _LANG_COMMENT.get(lang.lower(), "#")
             if comment_char == "<!--":
-                lang_header_line = f"&lt;!-- {lang_display} --&gt;"
+                all_lines.append(f"&lt;!-- {lang_display} --&gt;")
             elif comment_char == "/*":
-                lang_header_line = f"/* {lang_display} */"
+                all_lines.append(f"/* {lang_display} */")
             else:
-                lang_header_line = f"{html_escape(comment_char)} {lang_display}"
+                all_lines.append(f"{html_escape(comment_char)} {lang_display}")
 
-    # Build all lines into a single <pre> with explicit newline chars
-    all_lines = []
-    if lang_header_line:
-        all_lines.append(lang_header_line)
     for line in code_lines:
         all_lines.append(html_escape(line) if line else "")
 
-    # Use a single <pre> with \n preserved — Medium's import tool respects
-    # newlines within <pre> blocks. If that fails, the fallback would be
-    # multiple consecutive <pre> elements.
-    return f"<pre>\n{chr(10).join(all_lines)}\n</pre>\n"
+    # One <pre> per line — Medium treats consecutive <pre> as one code block
+    return "".join(f"<pre>{line}</pre>\n" for line in all_lines)
 
 
 def _markdown_to_medium_html(
