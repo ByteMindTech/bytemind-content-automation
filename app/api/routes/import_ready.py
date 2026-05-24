@@ -13,7 +13,7 @@ Medium's importer only supports a restricted subset of HTML:
 
 Security:
   - POST /import-ready/{slug}/token — Authenticated users generate a time-limited access token
-  - GET  /import-ready/{slug}?token=XXX — Public access with valid token (2 min TTL)
+  - GET  /import-ready/{slug}?token=XXX — Public access with valid token (5 min TTL)
   - GET  /import-ready/{slug} without token — 401 Unauthorized
 
 Flags (query parameters):
@@ -43,14 +43,14 @@ logger = get_logger(__name__)
 
 # Time-limited token store: {token_hash: (slug, expires_at)}
 _TOKEN_STORE: dict[str, tuple[str, float]] = {}
-_TOKEN_TTL_SECONDS = 120  # 2 minutes
+_TOKEN_TTL_SECONDS = 300  # 5 minutes (allows time for Medium's server-side fetch)
 
 
 # ── Token management ──────────────────────────────────────────────────────────
 
 
 def _generate_import_token(slug: str) -> str:
-    """Generate a cryptographically secure token valid for 2 minutes."""
+    """Generate a cryptographically secure token valid for 5 minutes."""
     token = secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(token.encode()).hexdigest()
     _TOKEN_STORE[token_hash] = (slug, time.time() + _TOKEN_TTL_SECONDS)
@@ -140,7 +140,7 @@ async def create_import_token(
 
     **Auth:** Accepts Bearer token (API key) OR HTTP Basic Auth (same credentials as /docs).
 
-    Returns a token valid for 2 minutes. Use it as:
+    Returns a token valid for 5 minutes. Use it as:
       GET /import-ready/{slug}?token=<TOKEN>
     """
     settings = get_settings()
@@ -158,7 +158,7 @@ async def create_import_token(
         "url": import_url,
         "token": token,
         "expires_in_seconds": _TOKEN_TTL_SECONDS,
-        "note": "Use this URL in Medium's 'Import a story' tool within 2 minutes.",
+        "note": "Use this URL in Medium's 'Import a story' tool within 5 minutes.",
     }
 
 
@@ -516,7 +516,7 @@ async def import_ready_article(
     """Render a blog article as clean static HTML for Medium's import tool.
 
     Requires a valid time-limited token (generated via POST /{slug}/token).
-    Token expires after 2 minutes.
+    Token expires after 5 minutes.
     """
     # Validate token
     if not _validate_import_token(slug, token):
