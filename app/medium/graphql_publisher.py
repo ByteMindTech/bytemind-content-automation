@@ -271,15 +271,15 @@ class MediumGraphQLPublisher:
         """Delete a post (cleanup helper)."""
         cookies, headers = self._get_session()
         query = (
-            "mutation DeletePost($postId: ID!) "
-            "{ deletePost(postId: $postId) { __typename } }"
+            "mutation DeletePost($targetPostId: ID!) "
+            "{ deletePost(targetPostId: $targetPostId) }"
         )
         requests.post(
             GRAPHQL_URL,
             json={
                 "operationName": "DeletePost",
                 "query": query,
-                "variables": {"postId": post_id},
+                "variables": {"targetPostId": post_id},
             },
             cookies=cookies,
             headers=headers,
