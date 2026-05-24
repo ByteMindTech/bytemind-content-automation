@@ -1,15 +1,20 @@
 """GET /import-ready/{slug} — Serve blog articles as clean HTML for Medium import.
 
-Medium's "Import a story" feature fetches raw HTML and requires:
-- Server-rendered content (no JS)
-- Standard article structure with <article>, <h1>, <p> tags
-- Canonical URL in <link rel="canonical">
-- og:title and og:description meta tags
+Medium's importer only supports a restricted subset of HTML:
+  ✓ <h1>–<h4>, <p>, <strong>, <em>, <a>, <blockquote>
+  ✓ <pre> (code blocks — single gray block, no syntax highlighting)
+  ✓ <ul>, <ol>, <li>
+  ✓ <figure><img> (images only)
+  ✓ <hr>
+  ✗ <table> — stripped entirely, rendered as raw text
+  ✗ <figcaption> on non-images — stripped
+  ✗ Any inline styles — stripped
+  ✗ <code> inside <pre> — causes double-block
 
-Medium-specific rendering:
-- Tables → styled HTML tables (Medium supports basic tables)
-- Code blocks → <pre> with language label header
-- Diagrams → formatted as code blocks with context
+Strategy:
+- Tables → formatted as structured lists (bold header: value)
+- Code blocks → <pre> with language comment as first line
+- Everything else → simple semantic HTML only
 """
 
 import re
@@ -26,7 +31,38 @@ router = APIRouter()
 _parser = MarkdownParser()
 
 
-# Language display names for code block headers
+# Comment syntax per language for code block headers
+_LANG_COMMENT: dict[str, str] = {
+    "python": "#",
+    "py": "#",
+    "terraform": "#",
+    "hcl": "#",
+    "sql": "--",
+    "yaml": "#",
+    "yml": "#",
+    "bash": "#",
+    "sh": "#",
+    "ruby": "#",
+    "toml": "#",
+    "dockerfile": "#",
+    "javascript": "//",
+    "js": "//",
+    "typescript": "//",
+    "ts": "//",
+    "go": "//",
+    "rust": "//",
+    "java": "//",
+    "c": "//",
+    "cpp": "//",
+    "json": "//",
+    "graphql": "#",
+    "proto": "//",
+    "protobuf": "//",
+    "css": "/*",
+    "html": "<!--",
+    "xml": "<!--",
+}
+
 _LANG_NAMES: dict[str, str] = {
     "python": "Python",
     "py": "Python",
@@ -56,34 +92,32 @@ _LANG_NAMES: dict[str, str] = {
 }
 
 
-def _render_table_to_html(table_lines: list[str]) -> str:
-    """Convert markdown table lines to a styled HTML table."""
+def _render_table_for_medium(table_lines: list[str]) -> str:
+    """Convert markdown table to Medium-compatible format (structured list).
+
+    Medium does NOT support <table> — it strips the tags and renders
+    raw pipe text. Instead, we render each row as a structured block.
+    """
     rows = []
     for line in table_lines:
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
         rows.append(cells)
 
-    if len(rows) < 2:
+    if len(rows) < 3:
         return ""
 
-    # First row is header, second is separator (skip it)
     header = rows[0]
-    data_rows = rows[2:]  # skip separator row
+    data_rows = rows[2:]  # skip separator
 
-    html = '<figure><table style="width:100%;border-collapse:collapse;margin:1.5rem 0;">\n'
-    html += "<thead><tr>"
-    for cell in header:
-        html += f'<th style="border:1px solid #ddd;padding:10px 12px;background:#f8f9fa;font-weight:600;text-align:left;">{_inline_md(cell)}</th>'
-    html += "</tr></thead>\n<tbody>\n"
-
+    html = ""
     for row in data_rows:
-        html += "<tr>"
+        # Each row becomes a paragraph with bold field names
+        parts = []
         for i, cell in enumerate(row):
-            if i < len(header):
-                html += f'<td style="border:1px solid #ddd;padding:8px 12px;">{_inline_md(cell)}</td>'
-        html += "</tr>\n"
+            if i < len(header) and cell:
+                parts.append(f"<strong>{_inline_md(header[i])}</strong>: {_inline_md(cell)}")
+        html += f"<p>{' · '.join(parts)}</p>\n"
 
-    html += "</tbody></table></figure>\n"
     return html
 
 
@@ -92,31 +126,35 @@ def _inline_md(text: str) -> str:
     text = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", text)
     text = re.sub(r"\*(.+?)\*", r"<em>\1</em>", text)
     text = re.sub(r"`(.+?)`", r"<code>\1</code>", text)
+    # Links
+    text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2">\1</a>', text)
     return text
 
 
 def _render_code_block(lang: str, code: str) -> str:
-    """Render a code block with a language label header for Medium."""
-    lang_display = _LANG_NAMES.get(lang.lower(), lang.upper() if lang else "Code")
+    """Render a code block for Medium — just <pre> with language as a comment."""
+    lang_display = _LANG_NAMES.get(lang.lower(), lang.upper() if lang else "")
+    comment_char = _LANG_COMMENT.get(lang.lower(), "#")
     escaped_code = html_escape(code.rstrip())
 
-    return (
-        f'<figure style="margin:1.5rem 0;">'
-        f'<figcaption style="background:#2d2d2d;color:#ccc;padding:6px 12px;'
-        f'font-size:0.8rem;font-family:monospace;border-radius:4px 4px 0 0;'
-        f'display:inline-block;">📄 {html_escape(lang_display)}</figcaption>'
-        f'<pre style="background:#1e1e1e;color:#d4d4d4;padding:1rem;'
-        f'overflow-x:auto;border-radius:0 4px 4px 4px;margin-top:0;'
-        f'font-size:0.85rem;line-height:1.5;">'
-        f"<code>{escaped_code}</code></pre></figure>\n"
-    )
+    # Add language label as a comment at the top of the code
+    lang_header = ""
+    if lang_display:
+        if comment_char == "<!--":
+            lang_header = f"&lt;!-- {lang_display} --&gt;\n"
+        elif comment_char == "/*":
+            lang_header = f"/* {lang_display} */\n"
+        else:
+            lang_header = f"{html_escape(comment_char)} {lang_display}\n"
+
+    return f"<pre>{lang_header}{escaped_code}</pre>\n"
 
 
 def _markdown_to_medium_html(markdown_body: str) -> str:
-    """Custom Markdown → HTML renderer optimized for Medium import.
+    """Custom Markdown → HTML renderer for Medium's restricted import.
 
-    Handles: headings, paragraphs, code blocks with language labels,
-    tables, bold, italic, inline code, blockquotes, lists, links.
+    Only uses elements Medium actually supports:
+    h1-h4, p, strong, em, code, a, blockquote, pre, ul, ol, li, hr
     """
     lines = markdown_body.split("\n")
     html_parts: list[str] = []
@@ -137,24 +175,23 @@ def _markdown_to_medium_html(markdown_body: str) -> str:
             html_parts.append(_render_code_block(lang, "\n".join(code_lines)))
             continue
 
-        # ── Table ──
-        if "|" in line and i + 1 < len(lines) and re.match(r"^\|[\s\-:|]+\|$", lines[i + 1].strip()):
+        # ── Table (detect by separator row) ──
+        if "|" in line and i + 1 < len(lines) and re.match(
+            r"^\|[\s\-:|]+\|$", lines[i + 1].strip()
+        ):
             table_lines = []
             while i < len(lines) and "|" in lines[i]:
                 table_lines.append(lines[i])
                 i += 1
-            html_parts.append(_render_table_to_html(table_lines))
+            html_parts.append(_render_table_for_medium(table_lines))
             continue
 
         # ── Headings ──
         heading_match = re.match(r"^(#{1,6})\s+(.+)$", line)
         if heading_match:
-            level = len(heading_match.group(1))
+            level = min(len(heading_match.group(1)), 4)  # Medium supports h1-h4
             text = _inline_md(heading_match.group(2))
-            style = ""
-            if level == 2:
-                style = ' style="margin-top:2.5rem;padding-top:1rem;border-top:1px solid #eee;"'
-            html_parts.append(f"<h{level}{style}>{text}</h{level}>\n")
+            html_parts.append(f"<h{level}>{text}</h{level}>\n")
             i += 1
             continue
 
@@ -165,11 +202,7 @@ def _markdown_to_medium_html(markdown_body: str) -> str:
                 quote_lines.append(lines[i].lstrip("> "))
                 i += 1
             quote_text = _inline_md(" ".join(quote_lines))
-            html_parts.append(
-                f'<blockquote style="border-left:4px solid #00d4ff;margin:1.5rem 0;'
-                f'padding:0.8rem 1.2rem;color:#555;font-style:italic;'
-                f'background:#f8fffe;">{quote_text}</blockquote>\n'
-            )
+            html_parts.append(f"<blockquote>{quote_text}</blockquote>\n")
             continue
 
         # ── Unordered list ──
@@ -180,7 +213,7 @@ def _markdown_to_medium_html(markdown_body: str) -> str:
                 i += 1
             html_parts.append("<ul>\n")
             for item in list_items:
-                html_parts.append(f"  <li>{item}</li>\n")
+                html_parts.append(f"<li>{item}</li>\n")
             html_parts.append("</ul>\n")
             continue
 
@@ -192,7 +225,7 @@ def _markdown_to_medium_html(markdown_body: str) -> str:
                 i += 1
             html_parts.append("<ol>\n")
             for item in list_items:
-                html_parts.append(f"  <li>{item}</li>\n")
+                html_parts.append(f"<li>{item}</li>\n")
             html_parts.append("</ol>\n")
             continue
 
@@ -207,20 +240,28 @@ def _markdown_to_medium_html(markdown_body: str) -> str:
             i += 1
             continue
 
-        # ── Paragraph (collect consecutive non-empty lines) ──
+        # ── Paragraph ──
         para_lines = []
-        while i < len(lines) and lines[i].strip() and not lines[i].startswith("#") and not lines[i].startswith("```") and not lines[i].startswith(">") and not re.match(r"^[\-\*]\s", lines[i]) and not re.match(r"^\d+\.\s", lines[i]) and not ("|" in lines[i] and i + 1 < len(lines) and i + 1 < len(lines) and "|" in lines[i]):
+        while (
+            i < len(lines)
+            and lines[i].strip()
+            and not lines[i].startswith("#")
+            and not lines[i].startswith("```")
+            and not lines[i].startswith(">")
+            and not re.match(r"^[\-\*]\s", lines[i])
+            and not re.match(r"^\d+\.\s", lines[i])
+            and not re.match(r"^---+$", lines[i].strip())
+            and not (
+                "|" in lines[i]
+                and i + 1 < len(lines)
+                and re.match(r"^\|[\s\-:|]+\|$", lines[i + 1].strip())
+            )
+        ):
             para_lines.append(lines[i])
             i += 1
 
         if para_lines:
             para_text = _inline_md(" ".join(para_lines))
-            # Convert markdown links [text](url) to HTML
-            para_text = re.sub(
-                r"\[([^\]]+)\]\(([^)]+)\)",
-                r'<a href="\2">\1</a>',
-                para_text,
-            )
             html_parts.append(f"<p>{para_text}</p>\n")
         else:
             i += 1
@@ -243,64 +284,27 @@ async def import_ready_article(slug: str) -> HTMLResponse:
     body_html = _markdown_to_medium_html(article.content_body)
     canonical_url = f"{settings.medium_canonical_base_url}/{article.slug}"
 
+    # Medium only respects: title, canonical, og: tags, and basic semantic HTML.
+    # All inline styles and custom elements are stripped on import.
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{html_escape(article.title)}</title>
     <meta name="description" content="{html_escape(article.excerpt)}">
     <meta name="author" content="{html_escape(article.author)}">
-    <meta name="keywords" content="{html_escape(', '.join(article.tags))}">
     <link rel="canonical" href="{canonical_url}">
-
-    <!-- Open Graph (Medium uses these) -->
     <meta property="og:type" content="article">
     <meta property="og:title" content="{html_escape(article.title)}">
     <meta property="og:description" content="{html_escape(article.excerpt)}">
     <meta property="og:url" content="{canonical_url}">
     <meta property="article:published_time" content="{article.date.isoformat()}">
-    <meta property="article:author" content="{html_escape(article.author)}">
-    <meta property="article:section" content="{html_escape(article.category)}">
-
-    <style>
-        body {{ font-family: Georgia, 'Times New Roman', serif; max-width: 720px; margin: 2rem auto; padding: 0 1.5rem; line-height: 1.8; color: #1a1a1a; }}
-        h1 {{ font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 2.4rem; line-height: 1.2; margin-bottom: 0.3rem; letter-spacing: -0.02em; }}
-        h2 {{ font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 1.6rem; margin-top: 2.5rem; padding-top: 1rem; border-top: 1px solid #eee; }}
-        h3 {{ font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 1.3rem; margin-top: 1.5rem; }}
-        .meta {{ color: #666; font-size: 0.9rem; margin-bottom: 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid #eee; }}
-        .meta .tag {{ display: inline-block; background: #f0f0f0; padding: 2px 8px; border-radius: 3px; font-size: 0.8rem; margin-right: 4px; }}
-        pre {{ background: #1e1e1e; color: #d4d4d4; padding: 1rem; overflow-x: auto; border-radius: 4px; font-size: 0.85rem; line-height: 1.5; }}
-        code {{ font-family: 'SF Mono', 'Fira Code', Menlo, monospace; font-size: 0.88em; }}
-        p code {{ background: #f4f4f4; padding: 2px 6px; border-radius: 3px; color: #c7254e; }}
-        blockquote {{ border-left: 4px solid #00d4ff; margin: 1.5rem 0; padding: 0.8rem 1.2rem; color: #555; font-style: italic; background: #f8fffe; }}
-        table {{ width: 100%; border-collapse: collapse; margin: 1.5rem 0; }}
-        th {{ background: #f8f9fa; font-weight: 600; text-align: left; }}
-        th, td {{ border: 1px solid #ddd; padding: 10px 12px; }}
-        img {{ max-width: 100%; }}
-        figure {{ margin: 1.5rem 0; }}
-        figcaption {{ font-size: 0.8rem; color: #666; }}
-        hr {{ border: none; border-top: 1px solid #eee; margin: 2rem 0; }}
-        ul, ol {{ padding-left: 1.5rem; }}
-        li {{ margin-bottom: 0.4rem; }}
-    </style>
 </head>
 <body>
 <article>
-    <header>
-        <h1>{html_escape(article.title)}</h1>
-        <div class="meta">
-            <p>{article.date_label} · {article.read_time or f'{article.estimated_read_minutes} min read'} · {html_escape(article.category)}</p>
-            <p>By <strong>{html_escape(article.author)}</strong>{f', {html_escape(article.author_role)}' if article.author_role else ''}</p>
-            <p>{''.join(f'<span class="tag">{html_escape(t)}</span>' for t in article.tags)}</p>
-        </div>
-    </header>
-    <section>
-        {body_html}
-    </section>
-    <footer style="margin-top:3rem;padding-top:1rem;border-top:1px solid #eee;font-size:0.85rem;color:#666;">
-        <p>Originally published at <a href="{canonical_url}">{canonical_url}</a></p>
-    </footer>
+<h1>{html_escape(article.title)}</h1>
+{body_html}
+<p><em>Originally published at <a href="{canonical_url}">bytemind.fr</a></em></p>
 </article>
 </body>
 </html>"""
