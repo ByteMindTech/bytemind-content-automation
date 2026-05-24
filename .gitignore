@@ -48,3 +48,7 @@ backups/
 # OS
 .DS_Store
 Thumbs.db
+
+# Medium session cookies (sensitive)
+.medium-cookies.json
+content/.medium-cookies.json
