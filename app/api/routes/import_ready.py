@@ -24,10 +24,10 @@ Flags (query parameters):
 import hashlib
 import re
 import secrets
-import time
 from html import escape as html_escape
 from pathlib import Path
 
+import redis
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -41,9 +41,13 @@ router = APIRouter()
 _parser = MarkdownParser()
 logger = get_logger(__name__)
 
-# Time-limited token store: {token_hash: (slug, expires_at)}
-_TOKEN_STORE: dict[str, tuple[str, float]] = {}
 _TOKEN_TTL_SECONDS = 300  # 5 minutes (allows time for Medium's server-side fetch)
+
+
+def _get_redis() -> redis.Redis:
+    """Get Redis client (shared across workers)."""
+    settings = get_settings()
+    return redis.from_url(settings.redis_url, decode_responses=True)
 
 
 # ── Token management ──────────────────────────────────────────────────────────
@@ -53,8 +57,9 @@ def _generate_import_token(slug: str) -> str:
     """Generate a cryptographically secure token valid for 5 minutes."""
     token = secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(token.encode()).hexdigest()
-    _TOKEN_STORE[token_hash] = (slug, time.time() + _TOKEN_TTL_SECONDS)
-    _cleanup_expired_tokens()
+    r = _get_redis()
+    # Store slug with TTL — Redis handles expiry automatically
+    r.setex(f"import_token:{token_hash}", _TOKEN_TTL_SECONDS, slug)
     return token
 
 
@@ -63,24 +68,13 @@ def _validate_import_token(slug: str, token: str | None) -> bool:
     if not token:
         return False
     token_hash = hashlib.sha256(token.encode()).hexdigest()
-    entry = _TOKEN_STORE.get(token_hash)
-    if not entry:
-        return False
-    stored_slug, expires_at = entry
-    if time.time() > expires_at:
-        del _TOKEN_STORE[token_hash]
+    r = _get_redis()
+    stored_slug = r.get(f"import_token:{token_hash}")
+    if not stored_slug:
         return False
     if stored_slug != slug:
         return False
     return True
-
-
-def _cleanup_expired_tokens() -> None:
-    """Remove expired tokens from store."""
-    now = time.time()
-    expired = [k for k, (_, exp) in _TOKEN_STORE.items() if now > exp]
-    for k in expired:
-        del _TOKEN_STORE[k]
 
 
 # ── Token endpoint (authenticated) ───────────────────────────────────────────

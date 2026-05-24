@@ -22,3 +22,4 @@ structlog>=24.4.0
 tenacity>=9.0.0
 python-multipart>=0.0.12
 strawberry-graphql[fastapi]>=0.316.0
+redis>=5.0
