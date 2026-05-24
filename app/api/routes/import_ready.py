@@ -28,8 +28,9 @@ import time
 from html import escape as html_escape
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 from app.config import get_settings
 from app.security.auth import require_api_key
@@ -84,13 +85,60 @@ def _cleanup_expired_tokens() -> None:
 
 # ── Token endpoint (authenticated) ───────────────────────────────────────────
 
+_basic_security = HTTPBasic(auto_error=False)
+
+
+def _require_any_auth(
+    request: Request,
+    basic_creds: HTTPBasicCredentials | None = Depends(_basic_security),
+) -> str:
+    """Accept either Bearer token (API key/JWT) OR HTTP Basic Auth (docs credentials).
+
+    This allows generating tokens from Swagger UI using the same Basic Auth
+    credentials used to access /docs, without needing a separate Bearer token.
+    """
+    settings = get_settings()
+
+    # Try Bearer token from Authorization header
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        token = auth_header[7:]
+        if secrets.compare_digest(token, settings.actions_api_key):
+            return "github-actions"
+        from app.security.jwt import decode_token
+
+        try:
+            payload = decode_token(token)
+            return payload["sub"]
+        except ValueError:
+            pass
+
+    # Try HTTP Basic Auth (same credentials as /docs)
+    if basic_creds and basic_creds.username and basic_creds.password:
+        valid_user = secrets.compare_digest(
+            basic_creds.username.encode(), settings.docs_username.encode()
+        )
+        valid_pass = secrets.compare_digest(
+            basic_creds.password.encode(), settings.docs_password.encode()
+        )
+        if valid_user and valid_pass:
+            return f"docs-user:{basic_creds.username}"
+
+    raise HTTPException(
+        status_code=401,
+        detail="Authentication required. Use Bearer token OR Basic Auth (same as /docs).",
+        headers={"WWW-Authenticate": 'Basic realm="import-token"'},
+    )
+
 
 @router.post("/{slug}/token")
 async def create_import_token(
     slug: str,
-    _subject: str = Depends(require_api_key),
-) -> dict[str, str]:
+    _subject: str = Depends(_require_any_auth),
+) -> dict:
     """Generate a time-limited URL for Medium's import tool.
+
+    **Auth:** Accepts Bearer token (API key) OR HTTP Basic Auth (same credentials as /docs).
 
     Returns a token valid for 2 minutes. Use it as:
       GET /import-ready/{slug}?token=<TOKEN>
