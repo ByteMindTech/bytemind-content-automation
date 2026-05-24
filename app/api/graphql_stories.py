@@ -214,14 +214,11 @@ class Query:
     def list_stories(self, info: Info, limit: int = 20) -> list[StoryPreview]:
         cookies, headers = _get_medium_session()
 
-        # Get user ID from cookies
-        uid = cookies.get("uid", "")
-
-        # Query via GraphQL for the user's posts
+        # Use viewer query with postsConnection (requires after cursor)
         query = """
-        query UserPosts($userId: ID!, $first: Int) {
-          user(id: $userId) {
-            postsConnection(first: $first) {
+        query ListPosts($first: Int!, $after: String!) {
+          viewer {
+            postsConnection(first: $first, after: $after) {
               edges {
                 node {
                   id title createdAt mediumUrl
@@ -233,12 +230,11 @@ class Query:
         }
         """
         data = _medium_graphql(
-            query, {"userId": uid, "first": min(limit, 50)}, cookies, headers
+            query, {"first": min(limit, 50), "after": ""}, cookies, headers
         )
 
-        # If GraphQL doesn't work, fall back to REST
-        user_data = data.get("data", {}).get("user", {})
-        edges = user_data.get("postsConnection", {}).get("edges", [])
+        viewer = data.get("data", {}).get("viewer", {})
+        edges = viewer.get("postsConnection", {}).get("edges", [])
 
         stories = []
         for edge in edges:
