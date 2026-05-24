@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     jwt_refresh_token_expire_days: int = 7
     actions_api_key: str = Field(..., min_length=32)
 
+    # ── Docs Auth (HTTP Basic for /docs, /redoc, /openapi.json) ──
+    docs_username: str = Field(..., min_length=4)
+    docs_password: str = Field(..., min_length=16)
+
     # ── Database ─────────────────────────────────────────────
     database_url: str = Field(...)
     database_pool_size: int = 10

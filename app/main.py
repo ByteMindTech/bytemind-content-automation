@@ -1,11 +1,15 @@
 """ByteMind Content Automation Platform — FastAPI application entry point."""
 
+import secrets
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-from fastapi import FastAPI, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -61,11 +65,58 @@ app = FastAPI(
         "ingest, enrich, publish, and track technical articles."
     ),
     version="1.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
-    openapi_url="/openapi.json",
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
     lifespan=lifespan,
 )
+
+# ── Protected docs (HTTP Basic Auth) ─────────────────────────────────────────
+_docs_security = HTTPBasic()
+
+
+def _verify_docs_credentials(
+    credentials: HTTPBasicCredentials = Depends(_docs_security),
+) -> str:
+    """Validate HTTP Basic credentials for docs access (constant-time compare)."""
+    correct_user = secrets.compare_digest(
+        credentials.username.encode("utf-8"),
+        _settings.docs_username.encode("utf-8"),
+    )
+    correct_pass = secrets.compare_digest(
+        credentials.password.encode("utf-8"),
+        _settings.docs_password.encode("utf-8"),
+    )
+    if not (correct_user and correct_pass):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
+
+
+@app.get("/docs", include_in_schema=False)
+async def docs_page(username: str = Depends(_verify_docs_credentials)):  # noqa: ARG001
+    """Swagger UI — protected by HTTP Basic Auth."""
+    return get_swagger_ui_html(openapi_url="/openapi.json", title=app.title + " — Docs")
+
+
+@app.get("/redoc", include_in_schema=False)
+async def redoc_page(username: str = Depends(_verify_docs_credentials)):  # noqa: ARG001
+    """ReDoc — protected by HTTP Basic Auth."""
+    return get_redoc_html(openapi_url="/openapi.json", title=app.title + " — ReDoc")
+
+
+@app.get("/openapi.json", include_in_schema=False)
+async def openapi_schema(username: str = Depends(_verify_docs_credentials)):  # noqa: ARG001
+    """OpenAPI schema — protected by HTTP Basic Auth."""
+    return get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
 
 # Rate limiting
 app.state.limiter = limiter
