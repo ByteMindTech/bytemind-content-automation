@@ -317,10 +317,7 @@ def markdown_to_deltas(title: str, body: str) -> list[dict]:
             else:
                 in_code = False
                 code_text = "\n".join(code_lines)
-                if code_lang:
-                    comment = _lang_comment(code_lang)
-                    code_text = f"{comment} {code_lang}\n{code_text}"
-                deltas.append(_delta(idx, 8, code_text, []))
+                deltas.append(_delta(idx, 8, code_text, [], name=code_lang))
                 idx += 1
             i += 1
             continue
@@ -416,12 +413,17 @@ def markdown_to_deltas(title: str, body: str) -> list[dict]:
     return deltas
 
 
-def _delta(index: int, para_type: int, text: str, markups: list[dict]) -> dict:
+def _delta(
+    index: int, para_type: int, text: str, markups: list[dict], name: str = ""
+) -> dict:
     """Create a single delta insert operation."""
+    paragraph: dict = {"type": para_type, "text": text, "markups": markups}
+    if name:
+        paragraph["name"] = name
     return {
         "type": 1,  # 1 = insert
         "index": index,
-        "paragraph": {"type": para_type, "text": text, "markups": markups},
+        "paragraph": paragraph,
     }
 
 
@@ -531,17 +533,6 @@ def _strip_md_formatting(text: str) -> str:
     text = re.sub(r"\*(.+?)\*", r"\1", text)
     text = re.sub(r"`(.+?)`", r"\1", text)
     return text.strip()
-
-
-def _lang_comment(lang: str) -> str:
-    """Return the comment prefix for a language."""
-    sql_style = {"sql", "haskell", "lua"}
-    hash_style = {"python", "ruby", "bash", "sh", "yaml", "yml", "toml", "r", "perl"}
-    if lang.lower() in sql_style:
-        return "--"
-    if lang.lower() in hash_style:
-        return "#"
-    return "//"
 
 
 def _slugify(text: str) -> str:
