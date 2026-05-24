@@ -106,7 +106,22 @@ def _get_medium_session() -> tuple[dict[str, str], dict[str, str]]:
         )
     data = json.loads(COOKIES_PATH.read_text())
     cookies = {c["name"]: c["value"] for c in data} if isinstance(data, list) else data
-    r = requests.get("https://medium.com/", cookies=cookies, timeout=15)
+
+    # Fetch XSRF token with browser-like headers to avoid Cloudflare blocks
+    session_headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    r = requests.get("https://medium.com/", cookies=cookies, headers=session_headers, timeout=15)
+    if r.status_code == 403:
+        raise ValueError(
+            "Medium blocked by Cloudflare (403). This typically happens from data center IPs. "
+            "Use this endpoint from a non-blocked network or configure a proxy."
+        )
     xsrf = r.cookies.get("xsrf", "")
     cookies["xsrf"] = xsrf
     headers = {
@@ -114,6 +129,7 @@ def _get_medium_session() -> tuple[dict[str, str], dict[str, str]]:
         "Content-Type": "application/json",
         "X-XSRF-Token": xsrf,
         "X-Obvious-CK": "true",
+        "User-Agent": session_headers["User-Agent"],
     }
     return cookies, headers
 
@@ -135,16 +151,35 @@ def _medium_graphql(query: str, variables: dict, cookies: dict, headers: dict) -
 
 def _medium_rest(path: str, cookies: dict) -> dict:
     """Execute a REST GET against Medium's API."""
+    # Medium's REST endpoints use different patterns:
+    # - /me?format=json for user info
+    # - /_/api/posts/{id} for post data
+    if path == "/me":
+        url = "https://medium.com/me?format=json"
+    else:
+        url = f"https://medium.com/_/api{path}"
+
     r = requests.get(
-        f"https://medium.com/_/api{path}",
+        url,
         cookies=cookies,
-        headers={"Accept": "application/json"},
+        headers={
+            "Accept": "application/json",
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+            ),
+        },
         timeout=15,
     )
+    if r.status_code == 403:
+        raise ValueError("Medium blocked by Cloudflare (403)")
     text = r.text
     if text.startswith("])}"):
         text = text[text.index("{"):]
-    return json.loads(text) if text else {}
+    try:
+        return json.loads(text) if text.strip() else {}
+    except json.JSONDecodeError:
+        return {}
 
 
 # ── Queries ───────────────────────────────────────────────────────────────────
